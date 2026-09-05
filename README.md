@@ -41,3 +41,7 @@ The command accepts zero or one argument. No argument and `-` read standard
 input. Valid events are written as JSON Lines to standard output and
 line-numbered diagnostics to standard error. Exit status is 0 for a clean
 parse, 1 for content or I/O failures, and 2 for invalid arguments.
+
+## License
+
+This project is available under the [MIT License](LICENSE).
