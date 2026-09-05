@@ -1,0 +1,10 @@
+# Go build and test artifacts
+/goflexlm
+*.test
+*.out
+coverage.txt
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
