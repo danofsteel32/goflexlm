@@ -9,6 +9,11 @@ understands classic and `-datestamp` envelopes and
 the compact and verbose forms of `OUT`, `IN`, `DENIED`, `QUEUED`, and
 `DEQUEUED`. Other valid log messages are retained as generic events.
 
+See [the documentation](docs/README.md) for the
+[log parser](docs/log-parser.md), [license-file format](docs/license-files.md),
+[command reference](docs/cli.md), [SQLite analytics](docs/sqlite.md), and
+[development guide](docs/development.md).
+
 ## Library
 
 ```go
