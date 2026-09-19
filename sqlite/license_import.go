@@ -50,6 +50,28 @@ func (s *Store) ImportLicenseFile(ctx context.Context, request LicenseImportRequ
 		pool, request.SourceName, request.EffectiveFrom.UTC().UnixNano(), request.Timezone, string(document), string(resolved)); err != nil {
 		return fmt.Errorf("import license file: store snapshot: %w", err)
 	}
+	var importID int64
+	if err := tx.QueryRowContext(ctx, "SELECT id FROM license_imports WHERE pool_id=? AND effective_ns=?", pool, request.EffectiveFrom.UTC().UnixNano()).Scan(&importID); err != nil {
+		return fmt.Errorf("import license file: find snapshot: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM capacity_changes WHERE pool_id=?", pool); err != nil {
+		return fmt.Errorf("import license file: clear capacity projection: %w", err)
+	}
+	type capacityKey struct{ vendor, feature string }
+	capacities := make(map[capacityKey]int)
+	for _, feature := range request.File.Features {
+		if feature.Licenses == nil {
+			continue
+		}
+		key := capacityKey{vendor: feature.Vendor, feature: feature.Name}
+		capacities[key] += *feature.Licenses
+	}
+	for key, licenses := range capacities {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_changes(pool_id, vendor, feature, effective_ns, licenses, uncounted, source_import_id)
+            VALUES (?, ?, ?, ?, ?, 0, ?)`, pool, key.vendor, key.feature, request.EffectiveFrom.UTC().UnixNano(), licenses, importID); err != nil {
+			return fmt.Errorf("import license file: store capacity projection: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("import license file: commit: %w", err)
 	}
