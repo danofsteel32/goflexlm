@@ -2,8 +2,10 @@
 
 [![CI](https://github.com/danofsteel32/goflexlm/actions/workflows/ci.yml/badge.svg)](https://github.com/danofsteel32/goflexlm/actions/workflows/ci.yml)
 
-`goflexlm` is a streaming, standard-library-only Go parser for FlexNet
-Publisher debug logs. It understands classic and `-datestamp` envelopes and
+`goflexlm` is a streaming Go parser for FlexNet Publisher debug logs. The core
+parser and JSON Lines command use only the standard library; the optional
+`sqlite` package uses the pure-Go `modernc.org/sqlite` driver. The parser
+understands classic and `-datestamp` envelopes and
 the compact and verbose forms of `OUT`, `IN`, `DENIED`, `QUEUED`, and
 `DEQUEUED`. Other valid log messages are retained as generic events.
 
@@ -41,6 +43,61 @@ The command accepts zero or one argument. No argument and `-` read standard
 input. Valid events are written as JSON Lines to standard output and
 line-numbered diagnostics to standard error. Exit status is 0 for a clean
 parse, 1 for content or I/O failures, and 2 for invalid arguments.
+
+## SQLite usage analytics
+
+The additive `sqlite` package imports activity facts into a purchaser-defined
+license pool and derives quantity-bearing usage and queue sessions. Imports
+are transactional and deduplicated by the exact source-file SHA-256 digest
+within a logical stream. Parser diagnostics do not discard surrounding valid
+activity. Generic daemon messages are omitted, while unresolved timestamps
+and original activity lines remain available for audit.
+
+```go
+db, err := sqlite.Open(ctx, "usage.db", sqlite.OpenOptions{})
+if err != nil {
+    return err
+}
+defer db.Close()
+
+result, err := db.Import(ctx, sqlite.ImportRequest{
+    Reader: input,
+    Pool:   "engineering",
+    Stream: "license-server-a",
+    SourceName: "lmgrd.log",
+})
+```
+
+The separate database command imports files, replaces dated entitlement
+history, rebuilds disposable sessions, and produces capacity, denial, and
+queue reports:
+
+```console
+$ goflexlmdb import --db usage.db --pool engineering --stream server-a lmgrd.log
+$ goflexlmdb entitlements replace --db usage.db --pool engineering --feature editor entitlements.csv
+$ goflexlmdb report capacity --db usage.db --pool engineering \
+    --from 2026-08-01T00:00:00Z --to 2026-09-01T00:00:00Z \
+    --feature editor --bucket day --timezone America/New_York --json
+```
+
+Entitlement CSV files must have exactly these columns, in strictly increasing
+timestamp order:
+
+```csv
+effective_from,licenses
+2026-01-01T00:00:00Z,25
+2026-07-01T00:00:00Z,30
+```
+
+Report ranges are half-open (`from <= timestamp < to`). Missing entitlement
+history is reported as uncovered time, not zero capacity. Unresolved classic
+timestamps are excluded from sessions and time-based measures and surfaced in
+each report's quality fields.
+
+SQLite connections use foreign keys, WAL mode, a five-second busy timeout,
+and `synchronous=NORMAL`. WAL permits readers during the serialized writer.
+`NORMAL` keeps the database consistent but the newest commit can be lost after
+a power failure; retained source logs are the recovery source.
 
 ## License
 
