@@ -72,7 +72,11 @@ func runLicenses(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 2 {
 		path = args[1]
 	}
-	reader, closeReader, err := openInput(path, stdin)
+	return runLicenseParse(path, stdin, stdout, stderr, openInput)
+}
+
+func runLicenseParse(path string, stdin io.Reader, stdout, stderr io.Writer, opener func(string, io.Reader) (io.Reader, func() error, error)) int {
+	reader, closeReader, err := opener(path, stdin)
 	if err != nil {
 		failure(stderr, err)
 		return 1
@@ -92,7 +96,12 @@ func runLicenses(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		failure(stderr, fmt.Errorf("encode license document: %w", err))
 		return 1
 	}
-	if _, err := fmt.Fprintln(stdout, string(data)); err != nil {
+	data = append(data, '\n')
+	n, err := stdout.Write(data)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
 		failure(stderr, fmt.Errorf("write license document: %w", err))
 		return 1
 	}
