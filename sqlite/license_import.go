@@ -16,11 +16,19 @@ func (s *Store) ImportLicenseFile(ctx context.Context, request LicenseImportRequ
 		return fmt.Errorf("import license file: %w", err)
 	}
 	request.File = normalizeLicenseFile(request.File)
+	zone, _ := time.LoadLocation(request.Timezone)
+	dates, err := validateLicenseDocument(request.File, zone)
+	if err != nil {
+		return fmt.Errorf("import license file: %w", err)
+	}
+	if err := validateLicenseCapacity(request.File, dates, request.EffectiveFrom.UnixNano()); err != nil {
+		return fmt.Errorf("import license file: %w", err)
+	}
 	document, err := json.Marshal(request.File)
 	if err != nil {
 		return fmt.Errorf("import license file: encode document: %w", err)
 	}
-	resolved, err := json.Marshal(make([]any, len(request.File.Features)))
+	resolved, err := json.Marshal(dates)
 	if err != nil {
 		return fmt.Errorf("import license file: encode resolved dates: %w", err)
 	}
@@ -50,27 +58,8 @@ func (s *Store) ImportLicenseFile(ctx context.Context, request LicenseImportRequ
 		pool, request.SourceName, request.EffectiveFrom.UTC().UnixNano(), request.Timezone, string(document), string(resolved)); err != nil {
 		return fmt.Errorf("import license file: store snapshot: %w", err)
 	}
-	var importID int64
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM license_imports WHERE pool_id=? AND effective_ns=?", pool, request.EffectiveFrom.UTC().UnixNano()).Scan(&importID); err != nil {
-		return fmt.Errorf("import license file: find snapshot: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM capacity_changes WHERE pool_id=?", pool); err != nil {
-		return fmt.Errorf("import license file: clear capacity projection: %w", err)
-	}
-	type capacityKey struct{ vendor, feature string }
-	capacities := make(map[capacityKey]int)
-	for _, feature := range request.File.Features {
-		if feature.Licenses == nil {
-			continue
-		}
-		key := capacityKey{vendor: feature.Vendor, feature: feature.Name}
-		capacities[key] += *feature.Licenses
-	}
-	for key, licenses := range capacities {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO capacity_changes(pool_id, vendor, feature, effective_ns, licenses, uncounted, source_import_id)
-            VALUES (?, ?, ?, ?, ?, 0, ?)`, pool, key.vendor, key.feature, request.EffectiveFrom.UTC().UnixNano(), licenses, importID); err != nil {
-			return fmt.Errorf("import license file: store capacity projection: %w", err)
-		}
+	if err := rebuildLicenseCapacity(ctx, tx, pool); err != nil {
+		return fmt.Errorf("import license file: rebuild capacity: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("import license file: commit: %w", err)
@@ -84,6 +73,9 @@ func validateLicenseImportRequest(request LicenseImportRequest) error {
 	}
 	if request.EffectiveFrom.IsZero() {
 		return fmt.Errorf("effective time is required")
+	}
+	if _, err := checkedInstant(request.EffectiveFrom); err != nil {
+		return err
 	}
 	if request.Timezone != "UTC" && !strings.Contains(request.Timezone, "/") {
 		return fmt.Errorf("timezone must be UTC or an IANA location")

@@ -104,10 +104,13 @@ CREATE TABLE IF NOT EXISTS license_imports (
 );
 CREATE TABLE IF NOT EXISTS capacity_changes (
   pool_id INTEGER NOT NULL REFERENCES license_pools(id), vendor TEXT NOT NULL, feature TEXT NOT NULL,
-  effective_ns INTEGER NOT NULL, licenses INTEGER, uncounted INTEGER NOT NULL,
+  effective_ns INTEGER NOT NULL, licenses INTEGER, uncounted INTEGER NOT NULL CHECK(uncounted IN (0,1)),
   source_import_id INTEGER NOT NULL REFERENCES license_imports(id) ON DELETE CASCADE,
-  PRIMARY KEY(pool_id, vendor, feature, effective_ns)
+  PRIMARY KEY(pool_id, vendor, feature, effective_ns),
+  CHECK((uncounted=1 AND licenses IS NULL) OR
+        (uncounted=0 AND licenses IS NOT NULL AND licenses>=0))
 );
+CREATE INDEX IF NOT EXISTS capacity_changes_source_import_idx ON capacity_changes(source_import_id);
 CREATE TABLE IF NOT EXISTS derivation_state (
   pool_id INTEGER PRIMARY KEY REFERENCES license_pools(id),
   version INTEGER NOT NULL,
@@ -117,6 +120,5 @@ CREATE TABLE IF NOT EXISTS derivation_state (
 CREATE INDEX IF NOT EXISTS activity_chronology ON activity_events(stream_id, daemon, feature, timestamp_ns, id);
 CREATE INDEX IF NOT EXISTS activity_reports ON activity_events(pool_id, kind, timestamp_ns, feature);
 CREATE INDEX IF NOT EXISTS session_intervals ON sessions(pool_id, feature, start_ns, end_ns);
-CREATE INDEX IF NOT EXISTS entitlement_changes ON entitlements(pool_id, feature, effective_ns);
 UPDATE schema_version SET version = 2;
 `
