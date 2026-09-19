@@ -2,7 +2,7 @@
 
 Use Go 1.27, matching [go.mod](../go.mod). The root parser and `cmd/goflexlm` use
 only the standard library. The optional SQLite package uses `modernc.org/sqlite`;
-`cmd/goflexlmdb` builds on that package. Repository contribution rules live in
+`cmd/goflexlmdb` and `cmd/goflexlmweb` build on that package. Repository contribution rules live in
 [AGENTS.md](../AGENTS.md).
 
 ## Code map and data flow
@@ -14,6 +14,7 @@ only the standard library. The optional SQLite package uses `modernc.org/sqlite`
 | Shared syntax | [internal/licenserules/rules.go](../internal/licenserules/rules.go) | Case, decimal, port, and license-date validation |
 | Log CLI | [cmd/goflexlm/main.go](../cmd/goflexlm/main.go) | JSON Lines conversion and exit behavior |
 | Database CLI | [cmd/goflexlmdb/main.go](../cmd/goflexlmdb/main.go) | License parsing, imports, rebuilds, tables, and JSON reports |
+| Web reports | [cmd/goflexlmweb](../cmd/goflexlmweb) | Local HTTP dashboard, embedded templates and CSS, report filters and export |
 | Store setup | [sqlite/store.go](../sqlite/store.go), [sqlite/schema.go](../sqlite/schema.go) | Connections, permissions, schema, version checks |
 | Activity imports | [sqlite/import.go](../sqlite/import.go), [sqlite/derive.go](../sqlite/derive.go) | Transactional facts, digest deduplication, session matching |
 | License imports | [sqlite/license_import.go](../sqlite/license_import.go), [sqlite/license_validation.go](../sqlite/license_validation.go), [sqlite/license_capacity.go](../sqlite/license_capacity.go) | Validated snapshots and capacity timelines |

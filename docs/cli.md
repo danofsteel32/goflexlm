@@ -1,10 +1,11 @@
 # Command-line reference
 
-Build both commands with the Go 1.27 toolchain declared in `go.mod`:
+Build the commands with the Go 1.27 toolchain declared in `go.mod`:
 
 ```sh
 go build -o /tmp/goflexlm ./cmd/goflexlm
 go build -o /tmp/goflexlmdb ./cmd/goflexlmdb
+go build -o /tmp/goflexlmweb ./cmd/goflexlmweb
 ```
 
 The examples below use `go run` from the repository root. Substitute a built
@@ -123,3 +124,15 @@ reimport; there is no CSV entitlement command or automatic schema migration.
 
 The [full demo](../testdata/sqlite-demo/README.md) adds a second snapshot and stream,
 duplicate imports, missing vendor coverage, and diagnostic recovery.
+
+## Local web reports
+
+```sh
+go run ./cmd/goflexlmweb --db usage.db --pool engineering
+```
+
+`goflexlmweb --db DB --pool POOL [--listen 127.0.0.1:8080]` opens an existing
+database and serves a local report dashboard. The listen address must use a
+loopback IP. Usage errors exit 2, operational failures exit 1, and a clean
+shutdown exits 0. See the [web interface guide](web-interface.md) for filters,
+report interpretation, and export behavior.

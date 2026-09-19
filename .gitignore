@@ -3,7 +3,7 @@
 *.test
 *.out
 coverage.txt
-
+usage.db
 # Editor and operating-system files
 .DS_Store
 .idea/

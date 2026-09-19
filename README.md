@@ -94,6 +94,18 @@ $ goflexlmdb report capacity --db usage.db --pool engineering \
     --feature editor --bucket day --timezone America/New_York --json
 ```
 
+A local web dashboard brings these reports together for license purchasing and
+usage monitoring:
+
+```sh
+go run ./cmd/goflexlmweb --db usage.db --pool engineering
+```
+
+Open `http://127.0.0.1:8080` to filter by pool, feature, dates, and timezone;
+compare capacity with peak usage; inspect denials, queue waits, and data quality;
+and export the reports. It uses the existing database and embedded HTML/CSS,
+with no frontend dependencies. See the [web interface guide](docs/web-interface.md).
+
 For example, this synthetic license file supplies finite editor capacity and
 uncounted render capacity:
 

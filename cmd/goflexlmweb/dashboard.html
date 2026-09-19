@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="License capacity, usage, denials, and queue reports for purchasing and operations."><title>License overview · goflexlm</title><link rel="stylesheet" href="/dashboard.css"></head>
+<body>
+<a class="skip" href="#main">Skip to reports</a>
+<aside class="sidebar">
+ <a class="brand" href="/"><span class="brandmark">g</span> goflexlm</a>
+ <p class="eyebrow">LICENSE INTELLIGENCE</p>
+ <nav aria-label="Reports"><a href="#overview">Overview <span>↗</span></a><a href="#capacity">Usage &amp; capacity</a><a href="#denials">Denied requests</a><a href="#queues">Queue waits</a><a href="#quality">Data quality</a></nav>
+ <div class="sidebar-foot"><span class="dot"></span> Local reporting<p>Based on imported activity<br>and license snapshots</p></div>
+</aside>
+<main id="main">
+ <header id="overview"><div><p class="eyebrow">PURCHASING &amp; OPERATIONS</p><h1>License overview</h1><p>Understand demand before your next license decision.</p></div>{{if .Loaded}}<a class="button secondary" href="{{.Export}}">↓ Export reports</a>{{end}}</header>
+ <form class="filters" method="get" action="/" aria-label="Report filters">
+  <label>License pool<input name="pool" value="{{.Filters.Pool}}" required></label>
+  <label>From<input type="date" name="from" value="{{.Filters.From}}" required></label>
+  <label>Until <span>(exclusive)</span><input type="date" name="to" value="{{.Filters.To}}" required></label>
+  <label>Timezone<input name="timezone" value="{{.Filters.Timezone}}" required placeholder="UTC"></label>
+  <label>Feature<input name="feature" value="{{.Filters.Feature}}" placeholder="All features"></label>
+  <button type="submit">Apply filters <span aria-hidden="true">→</span></button>
+ </form>
+ {{if .Error}}<section class="error" role="alert"><h2>Reports unavailable</h2><p>{{.Error}}</p><p>Adjust the filters and try again. No report totals are shown for this request.</p></section>{{end}}
+ {{if .Loaded}}
+ <div class="range-note">{{.Filters.Pool}} <span> / </span> {{.Filters.From}} → {{.Filters.To}} <span> / </span> {{.Filters.Timezone}} <span> / </span> Refresh with “Apply filters” after importing data.</div>
+ <section class="metrics" aria-label="Report summary">
+  <article><p>Vendor / feature pairs</p><strong>{{len .Features}}</strong><span>With usage or capacity history</span></article>
+  <article><p>At capacity</p><strong>{{.Pressure}}</strong><span>Possible saturation in this period</span></article>
+  <article><p>Denied requests</p><strong>{{.Denied}}</strong><span>Events, not unique people</span></article>
+  <article><p>Queued requests</p><strong>{{.Queued}}</strong><span>Events across the selected period</span></article>
+ </section>
+ <section class="panel" id="capacity">
+  <div class="section-head"><div><p class="eyebrow">01 / PURCHASE PLANNING</p><h2>Usage &amp; capacity</h2></div><span class="tag">{{len .Features}} pairs</span></div>
+  <p class="description">Compare concurrent demand with purchased licenses. Ranges show confirmed usage through possible usage, including open or ambiguous sessions.</p>
+  {{if .Features}}
+  <div class="table-wrap"><table><caption class="sr-only">Capacity and usage by exact vendor and feature</caption><thead><tr><th scope="col">Feature / vendor</th><th scope="col">Purchased</th><th scope="col">Peak usage</th><th scope="col">Minimum spare seats</th><th scope="col">Time at capacity</th><th scope="col">Review signal</th></tr></thead><tbody>
+   {{range .Features}}<tr><th scope="row"><a href="{{.Link}}">{{.Feature}}</a><small>{{.Vendor}}</small></th><td>{{.Capacity}}</td><td><b>{{.LowerPeak}}–{{.UpperPeak}}</b>{{if and .Finite (gt .MinCapacity 0)}}<meter min="0" max="100" value="{{.PeakPercent}}" aria-label="Highest possible peak as a percentage of finite capacity">{{printf "%.0f" .PeakPercent}}%</meter><small>{{printf "%.0f" .PeakPercent}}% highest possible peak / finite capacity</small>{{end}}</td><td>{{if .Finite}}{{.UpperHeadroom}}–{{.LowerHeadroom}}{{else}}—{{end}}</td><td>{{if .Finite}}{{printf "%.2f" .LowerSaturated}}–{{printf "%.2f" .UpperSaturated}} h{{else}}—{{end}}</td><td><span class="badge {{.Tone}}">{{.Status}}</span></td></tr>{{end}}
+  </tbody></table></div>
+  <div class="interpretation"><b>Before you buy or reduce:</b> capacity pressure is a reason to investigate. Check denial reasons, waits, and data quality. Observed headroom alone does not establish that licenses can be removed. Spare seats and saturation apply only to segments with known finite capacity; negative spare seats indicate possible overuse.</div>
+  <details><summary>Daily capacity and usage detail <span>Inspect changes and seat-hours</span></summary><p class="description">Rows split at calendar and license-capacity changes. Boundaries below are UTC; daily grouping uses your selected timezone. Seat-hours count each license for each hour in use.</p>
+   <div class="table-wrap"><table><thead><tr><th>Vendor / feature</th><th>From (UTC)</th><th>Until (UTC)</th><th>Purchased</th><th>Peak usage</th><th>Used seat-hours</th></tr></thead><tbody>{{range .Reports.Capacity.Buckets}}<tr><th scope="row">{{.Feature}}<small>{{.Vendor}}</small></th><td>{{stamp .From}}</td><td>{{stamp .To}}</td><td>{{if .Uncounted}}Uncounted{{else}}{{count .Purchased}}{{end}}</td><td>{{.LowerPeak}}–{{.UpperPeak}}</td><td>{{hours .LowerUsedSeatNanoseconds}} – {{hours .UpperUsedSeatNanoseconds}}</td></tr>{{end}}</tbody></table></div>
+  </details>
+  {{else}}<div class="empty"><h3>No usage or capacity to show</h3><p>Try another period or feature, or import activity and license snapshots for this pool.</p></div>{{end}}
+ </section>
+ <div class="two-column">
+ <section class="panel" id="denials"><div class="section-head"><div><p class="eyebrow">02 / BLOCKED DEMAND</p><h2>Denied requests</h2></div><span class="tag">{{.Denied}} events</span></div><p class="description">Not every denial means you need more licenses. Review the vendor’s reason before purchasing.</p>
+ {{if .Reports.Denials.Buckets}}<div class="table-wrap"><table><thead><tr><th>Feature / reason</th><th>Events</th><th>Requested licenses</th></tr></thead><tbody>{{range .Reports.Denials.Buckets}}<tr><th scope="row">{{.Feature}}<small>{{.Reason}}{{if .ErrorCode}} · {{.ErrorCode}}{{end}}</small></th><td>{{.Events}}</td><td>{{.Licenses}}</td></tr>{{end}}</tbody></table></div>{{else}}<div class="empty"><h3>No resolved denials in this period</h3><p>Check unresolved timestamps below before concluding that every request succeeded.</p></div>{{end}}</section>
+ <section class="panel" id="queues"><div class="section-head"><div><p class="eyebrow">03 / TIME LOST WAITING</p><h2>Queue waits</h2></div><span class="tag">{{.Queued}} events</span></div><p class="description">Wait percentiles use completed queue sessions starting in this period. Open queues are shown separately.</p>
+ {{if .Reports.Queues.Buckets}}<div class="table-wrap"><table><thead><tr><th>Feature</th><th>Queued events / licenses</th><th>Median / P95 wait</th><th>Peak depth</th></tr></thead><tbody>{{range .Reports.Queues.Buckets}}<tr><th scope="row">{{.Feature}}<small>{{.CompletedWaits}} completed waits</small></th><td>{{.QueuedEvents}} / {{.QueuedLicenses}}</td><td>{{duration .P50Wait}} / {{duration .P95Wait}}<small>Max {{duration .MaximumWait}}</small></td><td>{{.MaximumDepth}}<small>{{.OpenQueueLicenses}} still open<br>Oldest {{duration .OldestOpenAge}}</small></td></tr>{{end}}</tbody></table></div>{{else}}<div class="empty"><h3>No queue activity to show</h3><p>No queue features match this pool and feature selection.</p></div>{{end}}</section>
+ </div>
+ <section class="panel quality" id="quality"><div class="section-head"><div><p class="eyebrow">04 / CONFIDENCE IN THE NUMBERS</p><h2>Data quality</h2></div>{{if .Missing}}<span class="badge warning">{{.Missing}} pairs with missing coverage</span>{{end}}</div>
+ <p class="description">Unresolved timestamps are excluded from time-based reports and counted across all imported history for this pool and feature. Open and ambiguous sessions widen usage bounds. Counts below describe licenses, except unresolved times and missing coverage segments.</p>
+ <div class="table-wrap"><table><thead><tr><th>Report</th><th>Open</th><th>Ambiguous</th><th>Orphan</th><th>Weak matches</th><th>Unresolved times</th></tr></thead><tbody>
+ <tr><th scope="row">Usage</th><td>{{.Reports.Capacity.Quality.Open}}</td><td>{{.Reports.Capacity.Quality.Ambiguous}}</td><td>{{.Reports.Capacity.Quality.Orphan}}</td><td>{{.Reports.Capacity.Quality.WeakMatch}}</td><td>{{.Reports.Capacity.Quality.UnresolvedTime}}</td></tr>
+ <tr><th scope="row">Queues</th><td>{{.Reports.Queues.Quality.Open}}</td><td>{{.Reports.Queues.Quality.Ambiguous}}</td><td>{{.Reports.Queues.Quality.Orphan}}</td><td>{{.Reports.Queues.Quality.WeakMatch}}</td><td>{{.Reports.Queues.Quality.UnresolvedTime}}</td></tr>
+ </tbody></table></div>
+ <p class="quality-note">{{.Reports.Capacity.Quality.MissingEntitlement}} missing capacity segments · {{hours .Reports.Capacity.Quality.UncoveredNanoseconds}} uncovered across vendor / feature pairs.{{if .Reports.Capacity.Quality.UsageAboveEntitlement}} <b>Possible usage exceeds purchased capacity. Check matching and open sessions.</b>{{end}}</p>
+ </section>
+ <footer>goflexlm <span>Historical reports · No live license-server connection · No pricing or renewal metadata</span></footer>
+ {{end}}
+</main></body></html>
