@@ -87,7 +87,9 @@ type Quality struct {
 
 // CapacityBucket reports capacity and usage for one entitlement segment.
 type CapacityBucket struct {
+	Vendor                     string     `json:"vendor"`
 	Feature                    string     `json:"feature"`
+	Uncounted                  bool       `json:"uncounted"`
 	From                       time.Time  `json:"from"`
 	To                         time.Time  `json:"to"`
 	Purchased                  *int       `json:"purchased"`

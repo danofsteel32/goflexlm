@@ -2,12 +2,23 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/danofsteel32/goflexlm"
 )
+
+func TestCapacityBucketJSONIncludesVendorAndUncounted(t *testing.T) {
+	data, err := json.Marshal(CapacityBucket{Vendor: "acme", Feature: "editor", Uncounted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"vendor":"acme"`) || !strings.Contains(string(data), `"uncounted":true`) {
+		t.Fatalf("JSON = %s", data)
+	}
+}
 
 func TestImportLicenseFileStoresValidatedSnapshot(t *testing.T) {
 	document, err := goflexlm.ParseLicenseFile(strings.NewReader("FEATURE editor acme 1.0 permanent 2\n"))
@@ -69,5 +80,28 @@ func TestImportLicenseFileCoalescesFeatureAndIncrementCapacity(t *testing.T) {
 	}
 	if licenses != 5 {
 		t.Fatalf("licenses = %d, want 5", licenses)
+	}
+}
+
+func TestCapacityReportsVendorCapacityWithoutUsage(t *testing.T) {
+	document, err := goflexlm.ParseLicenseFile(strings.NewReader("FEATURE editor acme 1.0 permanent 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(context.Background(), ":memory:", OpenOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.ImportLicenseFile(context.Background(), LicenseImportRequest{File: document, Pool: "engineering", SourceName: "licenses.lic", EffectiveFrom: start, Timezone: "UTC"}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := store.Capacity(context.Background(), AnalyticsQuery{Pool: "engineering", From: start, To: start.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Buckets) != 1 || report.Buckets[0].Vendor != "acme" || report.Buckets[0].Feature != "editor" || report.Buckets[0].Purchased == nil || *report.Buckets[0].Purchased != 2 {
+		t.Fatalf("buckets = %+v", report.Buckets)
 	}
 }

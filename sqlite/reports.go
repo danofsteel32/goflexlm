@@ -123,7 +123,43 @@ func (s *Store) Capacity(ctx context.Context, query AnalyticsQuery) (CapacityRep
 			report.Buckets = append(report.Buckets, bucket)
 		}
 	}
+	capacityRows, err := s.capacityOnlyBuckets(ctx, q)
+	if err != nil {
+		return CapacityReport{}, fmt.Errorf("capacity report: %w", err)
+	}
+	report.Buckets = append(report.Buckets, capacityRows...)
 	return report, nil
+}
+
+func (s *Store) capacityOnlyBuckets(ctx context.Context, q normalizedQuery) ([]CapacityBucket, error) {
+	clause, args := featureClause(q.feature)
+	query := `SELECT c.vendor, c.feature, c.licenses FROM capacity_changes c
+        WHERE c.pool_id=? AND c.effective_ns<=?
+          AND c.effective_ns=(SELECT MAX(latest.effective_ns) FROM capacity_changes latest
+            WHERE latest.pool_id=c.pool_id AND latest.vendor=c.vendor AND latest.feature=c.feature AND latest.effective_ns<=?)` + clause + `
+        ORDER BY c.vendor, c.feature`
+	values := []any{q.poolID, q.from.UnixNano(), q.from.UnixNano()}
+	values = append(values, args...)
+	rows, err := s.db.QueryContext(ctx, query, values...)
+	if err != nil {
+		return nil, fmt.Errorf("read capacity changes: %w", err)
+	}
+	defer rows.Close()
+	var buckets []CapacityBucket
+	for rows.Next() {
+		var vendor, feature string
+		var licenses sql.NullInt64
+		if err := rows.Scan(&vendor, &feature, &licenses); err != nil {
+			return nil, fmt.Errorf("scan capacity change: %w", err)
+		}
+		if !licenses.Valid {
+			continue
+		}
+		purchased := int(licenses.Int64)
+		buckets = append(buckets, capacitySegment(feature, q.from.UnixNano(), q.to.UnixNano(), purchased, true, nil))
+		buckets[len(buckets)-1].Vendor = vendor
+	}
+	return buckets, rows.Err()
 }
 
 func (s *Store) reportFeatures(ctx context.Context, q normalizedQuery, includeEntitlements bool) ([]string, error) {
