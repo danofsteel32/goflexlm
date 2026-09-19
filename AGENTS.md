@@ -5,9 +5,10 @@ a subdirectory overrides it for files below that directory.
 
 ## Project purpose
 
-`goflexlm` is a streaming Go library and command-line tool for parsing FlexNet
-Publisher debug logs. Preserve the library API and command output as compatibility
-surfaces. Prefer small, direct changes over new abstractions.
+`goflexlm` parses FlexNet Publisher debug logs and supported FlexLM license files.
+The optional SQLite package imports activity and license snapshots and reports
+usage, capacity, denials, and queueing. Preserve the library APIs, command output,
+and persisted database contracts. Prefer small, direct changes over new abstractions.
 
 ## Repository map
 
@@ -17,13 +18,25 @@ surfaces. Prefer small, direct changes over new abstractions.
 - `doc.go` provides the package documentation.
 - `cmd/goflexlm` contains the JSON Lines command and its tests.
 - `decoder_test.go` contains parser, recovery, reader, timestamp, and fuzz tests.
-- `README.md` documents supported behavior and public usage.
+- `license.go` and `license_parser.go` define and parse complete license documents;
+  `license_test.go` and `license_conformance_test.go` cover grammar and fuzzing.
+- `internal/licenserules` shares license syntax rules between parsing and validation.
+- `sqlite` contains storage, imports, session derivation, capacity projection,
+  reports, and their tests. `schema.go` defines the persisted schema.
+- `cmd/goflexlmdb` contains the database and license-file commands and their tests.
+- `testdata/licenses` contains the license conformance corpus;
+  `testdata/sqlite-demo` contains synthetic inputs and a runnable analytics demo.
+- `README.md` is the project introduction; `docs/README.md` indexes the detailed
+  parser, license-file, CLI, analytics, and development guides.
+- `.github/workflows/ci.yml` checks formatting, vet, and race-enabled tests.
 
 ## Go requirements
 
-- Use Go 1.27 and preserve the standard-library-only dependency policy. Add a module
-  dependency only when the task explicitly requires it and the standard library
-  cannot solve the problem.
+- Use Go 1.27 as declared in `go.mod`. Keep the root parser package, its internal
+  syntax helpers, and `cmd/goflexlm` standard-library-only. The optional `sqlite`
+  package uses the existing pure-Go `modernc.org/sqlite` dependency;
+  `cmd/goflexlmdb` depends on that package. Add further dependencies only when the
+  task explicitly requires them and the standard library cannot solve the problem.
 - Write idiomatic Go. Run `gofmt` on every changed Go file and keep imports grouped
   by `gofmt`.
 - Keep package names short and lowercase. Use exported names only for supported
@@ -41,7 +54,7 @@ surfaces. Prefer small, direct changes over new abstractions.
 - Keep functions focused. Extract helpers when they clarify a parsing rule, not only
   to reduce line count.
 
-## Parser invariants
+## Debug-log parser invariants
 
 - `Decoder` remains pull-based: callers advance with `Scan`, inspect one `Result`,
   and check `Err` after scanning stops.
@@ -65,6 +78,48 @@ surfaces. Prefer small, direct changes over new abstractions.
 - Keep parser state on each `Decoder`. Separate decoders must never share timestamp
   context or other mutable state.
 
+## License-file parser invariants
+
+- `ParseLicenseFile(io.Reader)` returns a complete document or a zero document and
+  a line-qualified error. Do not apply the debug decoder's recover-and-continue
+  behavior to license files.
+- Preserve record line numbers and ordered attributes, including repeated metadata
+  and the distinction between bare attributes and values. Support quoted values,
+  physical-line continuations, LF/CRLF, and final lines without a newline.
+- Keep working memory beyond the returned document proportional to the longest
+  logical line; do not introduce an arbitrary token limit.
+- Reject unsupported directives and malformed records. Keep parser and store
+  validation aligned through `internal/licenserules`, including for caller-built
+  documents that never passed through the text parser.
+- Normalize zero and `uncounted` license counts to uncounted capacity. Keep START
+  finite and preserve non-expiring expiration conventions.
+
+## SQLite invariants
+
+- Keep each source-file import transactional, including session derivation.
+  Deduplicate exact source bytes by SHA-256 within a pool's logical stream.
+  Reader, callback, cancellation, and database failures must not commit partial
+  imports. Content diagnostics may coexist with committed valid activity.
+- Retain activity source provenance and unresolved timestamps. Omit generic log
+  messages from stored activity; exclude unresolved times from session derivation
+  and time-based measures while surfacing them in report quality.
+- Match sessions within pool, stream, daemon, feature, and session type. Preserve
+  quantities, partial closes, match strength, ambiguity, open sessions, and orphans.
+- Treat each license import as an authoritative pool snapshot. Replace snapshots
+  at the same effective instant atomically. The first FEATURE per vendor/feature
+  and every INCREMENT contribute; preserve other pooling metadata without inventing
+  grouping behavior.
+- Resolve license calendar dates in the explicit import timezone and persist UTC
+  boundaries. START cannot activate before the snapshot; expiration ends capacity
+  at the start of its printed date. Rebuilds must retain those resolved boundaries.
+- Use exact daemon/vendor and feature spelling for capacity matching. Distinguish
+  known finite zero, missing capacity, and uncounted capacity in storage and reports.
+- Preserve half-open report intervals, calendar timezone boundaries, quality
+  counters, and checked capacity arithmetic. Never silently wrap overflow.
+- Schema version 2 is current; version 1 requires recreation and reimport, not an
+  implicit migration. Schema and derivation changes need an explicit versioning
+  decision and tests. Do not delete a user's database as part of an upgrade.
+
 ## Public compatibility
 
 - Treat exported types, constants, constructors, methods, event-kind strings,
@@ -78,6 +133,14 @@ surfaces. Prefer small, direct changes over new abstractions.
   status 1 for content or I/O failures.
 - Do not add incidental fields to JSON output. New fields and enum values require an
   explicit compatibility decision and tests.
+- For `goflexlmdb`, preserve the `import`, `licenses parse`, `licenses import`,
+  `rebuild`, and `report capacity|denials|queues` command contracts documented in
+  `docs/cli.md`. Usage errors exit 2 and operational errors exit 1.
+- `licenses parse` writes one complete JSON document only after successful parsing
+  and input closure. `licenses import` validates and closes input before opening
+  the database and is silent on success.
+- Log-import diagnostics may produce exit 1 after committing surrounding valid
+  activity. Keep that distinct from an import failure that rolls back the file.
 
 ## Testing expectations
 
@@ -95,6 +158,9 @@ surfaces. Prefer small, direct changes over new abstractions.
 - Avoid sleeps, external processes, network access, global environment mutation, and
   shared temporary paths in unit tests. Use `t.TempDir`, `t.Setenv`, and test-local
   readers or writers where needed.
+- For storage changes, cover rollback, deduplication, snapshot replacement,
+  chronological and out-of-order imports, rebuild consistency, and report quality
+  where affected. Use synthetic inputs and temporary databases.
 
 ## Verification
 
@@ -113,16 +179,20 @@ If the environment does not permit writes to the default Go build cache, set
 `GOCACHE` to a task-specific directory under `/tmp`. Do not commit build artifacts or
 cache contents.
 
-For parser changes, also run the fuzz target for a bounded smoke test:
+For parser changes, also run the affected fuzz target for a bounded smoke test
+(both when shared parsing rules change):
 
 ```sh
 go test -run '^$' -fuzz '^FuzzDecoder$' -fuzztime=10s .
+go test -run '^$' -fuzz '^FuzzParseLicenseFile$' -fuzztime=10s .
 ```
 
 ## Documentation and change discipline
 
 - Update `README.md` when supported input, public API behavior, JSON output, or CLI
-  usage changes.
+  usage changes, and update the corresponding guide in `docs`. Keep the docs index
+  current. Verify examples against code and synthetic fixtures; distinguish the
+  streaming log API from the whole-document license API.
 - Keep comments focused on why a rule exists or why an edge case is surprising. Do
   not restate the code.
 - Preserve unrelated user changes. Inspect the working tree before editing and avoid

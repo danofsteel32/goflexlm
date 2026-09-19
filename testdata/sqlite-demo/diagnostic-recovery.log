@@ -1,0 +1,3 @@
+2026-09-03T08:00:00Z (acme) OUT: "editor" nina@design-09
+this line deliberately has no FlexNet envelope
+2026-09-03T09:00:00Z (acme) IN: "editor" nina@design-09

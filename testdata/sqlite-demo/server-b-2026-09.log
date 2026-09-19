@@ -1,0 +1,5 @@
+2026-09-01T08:10:00Z (acme) OUT: "editor" jack@lab-01
+2026-09-01T12:00:00Z (acme) IN: "editor" jack@lab-01
+2026-09-02T14:00:00Z (acme) OUT: "editor" kate@lab-02 (2 licenses)
+2026-09-02T15:00:00Z (acme) QUEUED: "render" liam@render-04
+2026-09-02T16:30:00Z (acme) DENIED: "editor" maya@lab-03 (All licenses are in use. (-4,342))

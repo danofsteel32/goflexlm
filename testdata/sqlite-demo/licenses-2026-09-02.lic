@@ -1,0 +1,7 @@
+# Complete replacement snapshot, including unchanged render capacity.
+SERVER demo-server 001122aabbcc 27000
+VENDOR acme /opt/acme PORT=27001
+USE_SERVER
+FEATURE editor acme 1.0 permanent 6
+INCREMENT render acme 1.0 permanent 2
+INCREMENT preview acme 1.0 permanent uncounted
