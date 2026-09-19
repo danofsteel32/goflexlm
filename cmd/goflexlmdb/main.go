@@ -350,13 +350,15 @@ func writeTable(output io.Writer, report any) error {
 	w := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 	switch value := report.(type) {
 	case store.CapacityReport:
-		fmt.Fprintln(w, "FEATURE\tFROM\tTO\tPURCHASED\tLOWER PEAK\tUPPER PEAK")
+		fmt.Fprintln(w, "VENDOR\tFEATURE\tFROM\tTO\tPURCHASED\tLOWER PEAK\tUPPER PEAK")
 		for _, bucket := range value.Buckets {
 			purchased := "unknown"
-			if bucket.Purchased != nil {
+			if bucket.Uncounted {
+				purchased = "uncounted"
+			} else if bucket.Purchased != nil {
 				purchased = strconv.Itoa(*bucket.Purchased)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%d\n", bucket.Feature, formatTime(bucket.From), formatTime(bucket.To), purchased, bucket.LowerPeak, bucket.UpperPeak)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%d\n", bucket.Vendor, bucket.Feature, formatTime(bucket.From), formatTime(bucket.To), purchased, bucket.LowerPeak, bucket.UpperPeak)
 		}
 	case store.DenialReport:
 		fmt.Fprintln(w, "FEATURE\tREASON\tERROR\tEVENTS\tLICENSES")

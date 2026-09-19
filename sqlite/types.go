@@ -85,7 +85,9 @@ type Quality struct {
 	UsageAboveEntitlement bool  `json:"usage_above_entitlement"`
 }
 
-// CapacityBucket reports capacity and usage for one entitlement segment.
+// CapacityBucket reports capacity and usage for one vendor/feature time segment.
+// Uncounted capacity is known unlimited capacity; Purchased and finite headroom
+// fields are nil. Purchased nil with Uncounted false means missing capacity.
 type CapacityBucket struct {
 	Vendor                     string     `json:"vendor"`
 	Feature                    string     `json:"feature"`

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	store "github.com/danofsteel32/goflexlm/sqlite"
 )
 
 func TestImportAndJSONReport(t *testing.T) {
@@ -79,5 +81,26 @@ func TestLicensesParseRejectsMalformedInputWithoutJSON(t *testing.T) {
 	status := run([]string{"licenses", "parse"}, strings.NewReader("PACKAGE unsupported\n"), &output, &diagnostic)
 	if status != 1 || output.Len() != 0 || !strings.HasPrefix(diagnostic.String(), "goflexlmdb:") {
 		t.Fatalf("status=%d stdout=%q stderr=%q", status, output.String(), diagnostic.String())
+	}
+}
+
+func TestWriteCapacityTableLeadsWithVendor(t *testing.T) {
+	var output bytes.Buffer
+	err := writeTable(&output, store.CapacityReport{Buckets: []store.CapacityBucket{{Vendor: "acme", Feature: "editor"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(output.String(), "VENDOR") || !strings.Contains(output.String(), "acme") {
+		t.Fatalf("table = %q", output.String())
+	}
+}
+
+func TestCapacityTableLabelsUncounted(t *testing.T) {
+	var out bytes.Buffer
+	if e := writeTable(&out, store.CapacityReport{Buckets: []store.CapacityBucket{{Vendor: "v", Feature: "f", Uncounted: true}}}); e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(out.String(), "uncounted") || strings.Contains(out.String(), "unknown") {
+		t.Fatalf("table=%s", out.String())
 	}
 }

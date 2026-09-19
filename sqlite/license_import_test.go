@@ -97,11 +97,92 @@ func TestCapacityReportsVendorCapacityWithoutUsage(t *testing.T) {
 	if err := store.ImportLicenseFile(context.Background(), LicenseImportRequest{File: document, Pool: "engineering", SourceName: "licenses.lic", EffectiveFrom: start, Timezone: "UTC"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.Import(context.Background(), ImportRequest{Reader: strings.NewReader("2026-01-01T01:00:00Z (acme) OUT: editor user@host\n2026-01-01T02:00:00Z (acme) IN: editor user@host\n"), Pool: "engineering", Stream: "server", SourceName: "server.log"}); err != nil {
+		t.Fatal(err)
+	}
 	report, err := store.Capacity(context.Background(), AnalyticsQuery{Pool: "engineering", From: start, To: start.Add(24 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(report.Buckets) != 1 || report.Buckets[0].Vendor != "acme" || report.Buckets[0].Feature != "editor" || report.Buckets[0].Purchased == nil || *report.Buckets[0].Purchased != 2 {
+		t.Fatalf("buckets = %+v", report.Buckets)
+	}
+}
+
+func TestCapacityReportsUncountedVendorCapacity(t *testing.T) {
+	document, err := goflexlm.ParseLicenseFile(strings.NewReader("FEATURE editor acme 1.0 permanent uncounted\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(context.Background(), ":memory:", OpenOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.ImportLicenseFile(context.Background(), LicenseImportRequest{File: document, Pool: "engineering", SourceName: "licenses.lic", EffectiveFrom: start, Timezone: "UTC"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Import(context.Background(), ImportRequest{Reader: strings.NewReader("2026-01-01T01:00:00Z (acme) OUT: editor user@host\n2026-01-01T02:00:00Z (acme) IN: editor user@host\n"), Pool: "engineering", Stream: "server", SourceName: "server.log"}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := store.Capacity(context.Background(), AnalyticsQuery{Pool: "engineering", From: start, To: start.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Buckets) != 1 || report.Buckets[0].Vendor != "acme" || !report.Buckets[0].Uncounted || report.Buckets[0].Purchased != nil || report.Buckets[0].UpperPeak != 1 {
+		t.Fatalf("buckets = %+v", report.Buckets)
+	}
+}
+
+func TestCapacityMatchesUsageByVendorAndFeature(t *testing.T) {
+	document, err := goflexlm.ParseLicenseFile(strings.NewReader("FEATURE editor acme 1.0 permanent 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(context.Background(), ":memory:", OpenOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.ImportLicenseFile(context.Background(), LicenseImportRequest{File: document, Pool: "engineering", SourceName: "licenses.lic", EffectiveFrom: start, Timezone: "UTC"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Import(context.Background(), ImportRequest{Reader: strings.NewReader("2026-01-01T01:00:00Z (acme) OUT: editor user@host\n2026-01-01T02:00:00Z (acme) IN: editor user@host\n"), Pool: "engineering", Stream: "server", SourceName: "server.log"}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := store.Capacity(context.Background(), AnalyticsQuery{Pool: "engineering", From: start, To: start.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Buckets) != 1 || report.Buckets[0].Vendor != "acme" || report.Buckets[0].Feature != "editor" || report.Buckets[0].UpperPeak != 1 {
+		t.Fatalf("buckets = %+v", report.Buckets)
+	}
+}
+
+func TestCapacityKeepsUsageOnlyVendorWhenAnotherVendorHasCapacity(t *testing.T) {
+	document, err := goflexlm.ParseLicenseFile(strings.NewReader("FEATURE editor acme 1.0 permanent 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(context.Background(), ":memory:", OpenOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	start := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.ImportLicenseFile(context.Background(), LicenseImportRequest{File: document, Pool: "engineering", SourceName: "licenses.lic", EffectiveFrom: start, Timezone: "UTC"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Import(context.Background(), ImportRequest{Reader: strings.NewReader("2026-01-01T01:00:00Z (beta) OUT: editor user@host\n2026-01-01T02:00:00Z (beta) IN: editor user@host\n"), Pool: "engineering", Stream: "server", SourceName: "server.log"}); err != nil {
+		t.Fatal(err)
+	}
+	report, err := store.Capacity(context.Background(), AnalyticsQuery{Pool: "engineering", From: start, To: start.Add(24 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Buckets) != 2 || report.Buckets[0].Vendor != "acme" || report.Buckets[0].Purchased == nil || report.Buckets[1].Vendor != "beta" || report.Buckets[1].Purchased != nil || report.Buckets[1].UpperPeak != 1 {
 		t.Fatalf("buckets = %+v", report.Buckets)
 	}
 }

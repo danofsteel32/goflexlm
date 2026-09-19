@@ -61,7 +61,10 @@ func TestImportDeriveAndReports(t *testing.T) {
 
 	from := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
 	to := from.Add(3 * time.Hour)
-	if err := store.ReplaceEntitlements(ctx, "engineering", "editor", []Entitlement{{EffectiveFrom: from, Licenses: 3}}); err != nil {
+	request := licenseRequest(t, "FEATURE editor vendor 1 permanent 3")
+	request.Pool = "engineering"
+	request.EffectiveFrom = from
+	if err := store.ImportLicenseFile(ctx, request); err != nil {
 		t.Fatal(err)
 	}
 	capacity, err := store.Capacity(ctx, AnalyticsQuery{Pool: "engineering", Feature: "editor", From: from, To: to})

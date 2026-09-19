@@ -102,6 +102,13 @@ history is reported as uncovered time, not zero capacity. Unresolved classic
 timestamps are excluded from sessions and time-based measures and surfaced in
 each report's quality fields.
 
+Capacity reports match log daemon names to license vendors by exact spelling.
+Rows are ordered by vendor, feature, and segment start. A finite zero is known
+capacity; missing capacity has a null purchased value and contributes to
+coverage quality. Uncounted capacity is known unlimited capacity: it preserves
+usage measures but has no finite purchased, saturation, or headroom measures.
+Missing coverage is added separately for each vendor/feature, so its duration
+may exceed the wall-clock report range. Report arithmetic rejects overflow.
 SQLite connections use foreign keys, WAL mode, a five-second busy timeout,
 and `synchronous=NORMAL`. WAL permits readers during the serialized writer.
 `NORMAL` keeps the database consistent but the newest commit can be lost after
