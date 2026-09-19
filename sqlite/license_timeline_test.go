@@ -99,3 +99,12 @@ func TestLicenseProjectionOverflowLeavesSourceAndProjectionUnchanged(t *testing.
 		t.Fatalf("source=%s", raw)
 	}
 }
+
+func TestLicenseProjectionTreatsEmptyIntervalsAsKnownZero(t *testing.T) {
+	s := licenseStore(t)
+	r := licenseRequest(t, "FEATURE f v 1 1-jan-2026 5\nINCREMENT f v 1 2-jan-2026 3 START=3-jan-2026")
+	if e := s.ImportLicenseFile(context.Background(), r); e != nil {
+		t.Fatal(e)
+	}
+	assertTimeline(t, s, []string{"01:0"})
+}

@@ -107,6 +107,10 @@ func TestLicenseSchemaRejectsV1WithoutMutation(t *testing.T) {
 
 func TestLicenseSchemaEnforcesCapacityStates(t *testing.T) {
 	s := licenseStore(t)
+	var legacy int
+	if e := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name='entitlements'").Scan(&legacy); e != nil || legacy != 0 {
+		t.Fatalf("legacy table present: %d %v", legacy, e)
+	}
 	r := licenseRequest(t, "")
 	if e := s.ImportLicenseFile(context.Background(), r); e != nil {
 		t.Fatal(e)

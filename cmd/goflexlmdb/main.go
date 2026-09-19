@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -30,12 +30,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runImport(args[1:], stdin, stdout, stderr)
 	case "licenses":
 		return runLicenses(args[1:], stdin, stdout, stderr)
-	case "entitlements":
-		if len(args) < 2 || args[1] != "replace" {
-			usage(stderr)
-			return 2
-		}
-		return runEntitlements(args[2:], stdin, stderr)
 	case "rebuild":
 		return runRebuild(args[1:], stderr)
 	case "report":
@@ -54,12 +48,14 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: goflexlmdb import --db DB --pool POOL --stream STREAM FILE...")
 	fmt.Fprintln(w, "       goflexlmdb licenses parse [FILE|-]")
 	fmt.Fprintln(w, "       goflexlmdb licenses import --db DB --pool POOL --effective-from RFC3339 --timezone AREA/LOCATION FILE")
-	fmt.Fprintln(w, "       goflexlmdb entitlements replace --db DB --pool POOL --feature FEATURE FILE.csv")
 	fmt.Fprintln(w, "       goflexlmdb rebuild --db DB --pool POOL")
 	fmt.Fprintln(w, "       goflexlmdb report capacity|denials|queues --db DB --pool POOL --from RFC3339 --to RFC3339 [--feature FEATURE] [--bucket hour|day|week|month] [--timezone AREA/LOCATION] [--json]")
 }
 
 func runLicenses(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "import" {
+		return runLicenseImport(args[1:], stdin, stderr, openInput, store.Open)
+	}
 	if len(args) == 0 || args[0] != "parse" {
 		usage(stderr)
 		return 2
@@ -75,20 +71,53 @@ func runLicenses(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return runLicenseParse(path, stdin, stdout, stderr, openInput)
 }
 
-func runLicenseParse(path string, stdin io.Reader, stdout, stderr io.Writer, opener func(string, io.Reader) (io.Reader, func() error, error)) int {
-	reader, closeReader, err := opener(path, stdin)
-	if err != nil {
-		failure(stderr, err)
+func runLicenseImport(args []string, stdin io.Reader, stderr io.Writer,
+	opener func(string, io.Reader) (io.Reader, func() error, error),
+	openDatabase func(context.Context, string, store.OpenOptions) (*store.Store, error)) int {
+	set := flags("licenses import", stderr)
+	dbPath := set.String("db", "", "SQLite database")
+	pool := set.String("pool", "", "license pool")
+	effective := set.String("effective-from", "", "snapshot effective instant")
+	zone := set.String("timezone", "", "license date timezone")
+	if e := set.Parse(args); e != nil {
+		set.Usage()
+		return 2
+	}
+	when, e := time.Parse(time.RFC3339Nano, *effective)
+	validZone := *zone == "UTC" || strings.Contains(*zone, "/")
+	_, zoneError := time.LoadLocation(*zone)
+	if strings.TrimSpace(*dbPath) == "" || strings.TrimSpace(*pool) == "" || e != nil || when.IsZero() || !validZone || zoneError != nil || set.NArg() != 1 {
+		set.Usage()
+		return 2
+	}
+	path := set.Arg(0)
+	file, e := readLicenseInput(path, stdin, opener)
+	if e != nil {
+		failure(stderr, e)
 		return 1
 	}
-	file, err := goflexlm.ParseLicenseFile(reader)
-	closeErr := closeReader()
-	if err != nil {
-		failure(stderr, fmt.Errorf("parse %s: %w", path, err))
+	db, e := openDatabase(context.Background(), *dbPath, store.OpenOptions{})
+	if e != nil {
+		failure(stderr, e)
+		return 1
+	}
+	e = db.ImportLicenseFile(context.Background(), store.LicenseImportRequest{File: file, Pool: *pool, SourceName: path, EffectiveFrom: when, Timezone: *zone})
+	closeErr := db.Close()
+	if e != nil {
+		failure(stderr, e)
 		return 1
 	}
 	if closeErr != nil {
-		failure(stderr, fmt.Errorf("close %s: %w", path, closeErr))
+		failure(stderr, closeErr)
+		return 1
+	}
+	return 0
+}
+
+func runLicenseParse(path string, stdin io.Reader, stdout, stderr io.Writer, opener func(string, io.Reader) (io.Reader, func() error, error)) int {
+	file, err := readLicenseInput(path, stdin, opener)
+	if err != nil {
+		failure(stderr, err)
 		return 1
 	}
 	data, err := json.Marshal(file)
@@ -106,6 +135,22 @@ func runLicenseParse(path string, stdin io.Reader, stdout, stderr io.Writer, ope
 		return 1
 	}
 	return 0
+}
+
+func readLicenseInput(path string, stdin io.Reader, opener func(string, io.Reader) (io.Reader, func() error, error)) (goflexlm.LicenseFile, error) {
+	reader, closeReader, err := opener(path, stdin)
+	if err != nil {
+		return goflexlm.LicenseFile{}, fmt.Errorf("open %s: %w", path, err)
+	}
+	file, err := goflexlm.ParseLicenseFile(reader)
+	closeErr := closeReader()
+	if err != nil {
+		return goflexlm.LicenseFile{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if closeErr != nil {
+		return goflexlm.LicenseFile{}, fmt.Errorf("close %s: %w", path, closeErr)
+	}
+	return file, nil
 }
 
 func flags(name string, stderr io.Writer) *flag.FlagSet {
@@ -188,72 +233,6 @@ func openInput(path string, stdin io.Reader) (io.Reader, func() error, error) {
 		return nil, nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	return file, file.Close, nil
-}
-
-func runEntitlements(args []string, stdin io.Reader, stderr io.Writer) int {
-	set := flags("entitlements replace", stderr)
-	dbPath := set.String("db", "", "SQLite database")
-	pool := set.String("pool", "", "license pool")
-	feature := set.String("feature", "", "feature")
-	if err := set.Parse(args); err != nil || *dbPath == "" || *pool == "" || *feature == "" || len(set.Args()) != 1 {
-		if err == nil {
-			set.Usage()
-		}
-		return 2
-	}
-	reader, closeReader, err := openInput(set.Args()[0], stdin)
-	if err != nil {
-		failure(stderr, err)
-		return 1
-	}
-	defer closeReader()
-	entitlements, err := readEntitlements(reader)
-	if err != nil {
-		failure(stderr, err)
-		return 1
-	}
-	db, err := store.Open(context.Background(), *dbPath, store.OpenOptions{})
-	if err != nil {
-		failure(stderr, err)
-		return 1
-	}
-	defer db.Close()
-	if err := db.ReplaceEntitlements(context.Background(), *pool, *feature, entitlements); err != nil {
-		failure(stderr, err)
-		return 1
-	}
-	return 0
-}
-
-func readEntitlements(reader io.Reader) ([]store.Entitlement, error) {
-	rows := csv.NewReader(reader)
-	header, err := rows.Read()
-	if err != nil {
-		return nil, fmt.Errorf("read entitlement CSV header: %w", err)
-	}
-	if len(header) != 2 || header[0] != "effective_from" || header[1] != "licenses" {
-		return nil, errors.New("entitlement CSV must have exact columns effective_from,licenses")
-	}
-	var result []store.Entitlement
-	for line := 2; ; line++ {
-		record, err := rows.Read()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read entitlement CSV line %d: %w", line, err)
-		}
-		instant, err := time.Parse(time.RFC3339Nano, record[0])
-		if err != nil {
-			return nil, fmt.Errorf("entitlement CSV line %d: invalid RFC3339 effective_from", line)
-		}
-		licenses, err := strconv.Atoi(record[1])
-		if err != nil || licenses < 0 {
-			return nil, fmt.Errorf("entitlement CSV line %d: licenses must be a non-negative integer", line)
-		}
-		result = append(result, store.Entitlement{EffectiveFrom: instant, Licenses: licenses})
-	}
-	return result, nil
 }
 
 func runRebuild(args []string, stderr io.Writer) int {

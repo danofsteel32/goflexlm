@@ -84,14 +84,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   opening_event_id INTEGER REFERENCES activity_events(id),
   closing_event_id INTEGER REFERENCES activity_events(id)
 );
-CREATE TABLE IF NOT EXISTS entitlements (
-  id INTEGER PRIMARY KEY,
-  pool_id INTEGER NOT NULL REFERENCES license_pools(id),
-  feature TEXT NOT NULL,
-  effective_ns INTEGER NOT NULL,
-  licenses INTEGER NOT NULL CHECK(licenses >= 0),
-  UNIQUE(pool_id, feature, effective_ns)
-);
 CREATE TABLE IF NOT EXISTS license_imports (
   id INTEGER PRIMARY KEY,
   pool_id INTEGER NOT NULL REFERENCES license_pools(id),

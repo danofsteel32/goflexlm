@@ -22,7 +22,8 @@ type Store struct {
 	writer sync.Mutex
 }
 
-// Open opens path, applies forward-only migrations, and configures SQLite.
+// Open opens path, initializes schema version 2, and configures SQLite.
+// Version-1 databases must be deleted and recreated; no data migration is provided.
 func Open(ctx context.Context, path string, options OpenOptions) (*Store, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("open sqlite: database path is required")

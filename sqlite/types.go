@@ -46,12 +46,6 @@ type LicenseImportRequest struct {
 	Timezone      string
 }
 
-// Entitlement is a capacity change effective at EffectiveFrom.
-type Entitlement struct {
-	EffectiveFrom time.Time `json:"effective_from"`
-	Licenses      int       `json:"licenses"`
-}
-
 // CalendarBucket controls report grouping.
 type CalendarBucket string
 

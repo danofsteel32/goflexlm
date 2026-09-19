@@ -53,17 +53,6 @@ func TestImportDiagnosticsCommitAndReturnOne(t *testing.T) {
 	}
 }
 
-func TestReadEntitlementsRequiresExactHeader(t *testing.T) {
-	t.Parallel()
-	if _, err := readEntitlements(strings.NewReader("licenses,effective_from\n2,2026-01-01T00:00:00Z\n")); err == nil {
-		t.Fatal("expected header error")
-	}
-	rows, err := readEntitlements(strings.NewReader("effective_from,licenses\n2026-01-01T00:00:00Z,2\n"))
-	if err != nil || len(rows) != 1 || rows[0].Licenses != 2 {
-		t.Fatalf("rows=%+v, error=%v", rows, err)
-	}
-}
-
 func TestLicensesParseWritesLicenseDocumentFromStandardInput(t *testing.T) {
 	var output, diagnostic bytes.Buffer
 	status := run([]string{"licenses", "parse"}, strings.NewReader("FEATURE editor acme 1.0 permanent 2\n"), &output, &diagnostic)

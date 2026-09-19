@@ -30,10 +30,10 @@ These work items implement the [feature implementation plan](feature-implementat
 
 **Acceptance criteria.**
 
-- [ ] `ParseLicenseFile(io.Reader)` returns the pinned `LicenseFile` JSON shape: `servers`, `vendors`, and `features` arrays plus `use_server`; its records retain source line numbers and ordered attributes.
-- [ ] The parser accepts the pinned SERVER, VENDOR, FEATURE, INCREMENT, and USE_SERVER grammar, including LF, CRLF, final lines, quotes, and continuations; unsupported or malformed directives return a line-qualified error and no partial document.
-- [ ] Counts normalize as pinned: a positive count is finite, while `0` and `uncounted` become uncounted with no finite license count.
-- [ ] Automated tests cover conforming and malformed grammar variants, reader failure, JSON projection, and a bounded fuzz target that never panics.
+- [x] `ParseLicenseFile(io.Reader)` returns the pinned `LicenseFile` JSON shape: `servers`, `vendors`, and `features` arrays plus `use_server`; its records retain source line numbers and ordered attributes.
+- [x] The parser accepts the pinned SERVER, VENDOR, FEATURE, INCREMENT, and USE_SERVER grammar, including LF, CRLF, final lines, quotes, and continuations; unsupported or malformed directives return a line-qualified error and no partial document.
+- [x] Counts normalize as pinned: a positive count is finite, while `0` and `uncounted` become uncounted with no finite license count.
+- [x] Automated tests cover conforming and malformed grammar variants, reader failure, JSON projection, and a bounded fuzz target that never panics.
 
 **Depends on.** None.
 
@@ -61,11 +61,11 @@ These work items implement the [feature implementation plan](feature-implementat
 
 **Acceptance criteria.**
 
-- [ ] `Store.ImportLicenseFile(ctx, LicenseImportRequest{File, Pool, SourceName, EffectiveFrom, Timezone})` validates the complete public value before taking the writer lock or mutating storage, and errors begin with `import license file:`.
-- [ ] A new database creates schema version 2 with `license_imports(pool_id, source_name, effective_ns, timezone, document_json, resolved_dates_json)` and vendor-aware `capacity_changes(pool_id, vendor, feature, effective_ns, licenses, uncounted, source_import_id)`; version 1 instead returns actionable recreate guidance.
-- [ ] Import stores compact normalized document JSON and resolved UTC date boundaries, replaces a same-pool same-instant snapshot atomically, and can create the named pool as part of the transaction.
-- [ ] Invalid request or document values, date-range failures, and cancellation at either lock checkpoint leave no new pool, source snapshot, or capacity change behind.
-- [ ] Automated store tests cover validation, schema initialization and v1 rejection, replacement, date resolution, rollback, and cancellation.
+- [x] `Store.ImportLicenseFile(ctx, LicenseImportRequest{File, Pool, SourceName, EffectiveFrom, Timezone})` validates the complete public value before taking the writer lock or mutating storage, and errors begin with `import license file:`.
+- [x] A new database creates schema version 2 with `license_imports(pool_id, source_name, effective_ns, timezone, document_json, resolved_dates_json)` and vendor-aware `capacity_changes(pool_id, vendor, feature, effective_ns, licenses, uncounted, source_import_id)`; version 1 instead returns actionable recreate guidance.
+- [x] Import stores compact normalized document JSON and resolved UTC date boundaries, replaces a same-pool same-instant snapshot atomically, and can create the named pool as part of the transaction.
+- [x] Invalid request or document values, date-range failures, and cancellation at either lock checkpoint leave no new pool, source snapshot, or capacity change behind.
+- [x] Automated store tests cover validation, schema initialization and v1 rejection, replacement, date resolution, rollback, and cancellation.
 
 **Depends on.** W-1.
 
@@ -93,11 +93,11 @@ These work items implement the [feature implementation plan](feature-implementat
 
 **Acceptance criteria.**
 
-- [ ] Each import rebuilds a pool's `capacity_changes` inside the same transaction as source replacement, so an error or cancellation leaves both the snapshot and projection unchanged.
-- [ ] Projection rows use exact `(pool, vendor, feature)` identity and the pinned finite, uncounted, and known-zero states; usage-only identities remain absent rather than being invented as zero.
-- [ ] A snapshot is authoritative until the next snapshot, including an empty snapshot that ends every known identity at its effective instant; expiration creates a zero only when no active contributor remains.
-- [ ] Multiple records changing at one instant are coalesced, redundant non-boundary rows are omitted, and checked arithmetic rejects overflow with the responsible identity and source line.
-- [ ] Automated three-snapshot tests cover empty snapshots, expiration, replacement, zero, uncounted capacity, out-of-order imports, overflow, and transactional rollback.
+- [x] Each import rebuilds a pool's `capacity_changes` inside the same transaction as source replacement, so an error or cancellation leaves both the snapshot and projection unchanged.
+- [x] Projection rows use exact `(pool, vendor, feature)` identity and the pinned finite, uncounted, and known-zero states; usage-only identities remain absent rather than being invented as zero.
+- [x] A snapshot is authoritative until the next snapshot, including an empty snapshot that ends every known identity at its effective instant; expiration creates a zero only when no active contributor remains.
+- [x] Multiple records changing at one instant are coalesced, redundant non-boundary rows are omitted, and checked arithmetic rejects overflow with the responsible identity and source line.
+- [x] Automated three-snapshot tests cover empty snapshots, expiration, replacement, zero, uncounted capacity, out-of-order imports, overflow, and transactional rollback.
 
 **Depends on.** W-2.
 
@@ -125,11 +125,11 @@ These work items implement the [feature implementation plan](feature-implementat
 
 **Acceptance criteria.**
 
-- [ ] `CapacityBucket` exposes `Vendor string` as JSON `vendor` and `Uncounted bool` as JSON `uncounted`; table output has a leading VENDOR column.
-- [ ] Report rows are distinct for each exact vendor-and-feature identity, including capacity-only and usage-only identities; an `AnalyticsQuery.Feature` filter still applies across all vendors.
-- [ ] An uncounted row has no finite purchased value, no finite headroom or saturation measures, and does not create missing-capacity or over-capacity quality; a missing sibling remains missing.
-- [ ] Known zero at an authoritative snapshot is reported as finite zero rather than missing capacity, and finite capacity retains checked report arithmetic.
-- [ ] Automated state-matrix tests cover finite, uncounted, missing, capacity-only, usage-only, mixed-vendor, ordering, quality counters, and overflow.
+- [x] `CapacityBucket` exposes `Vendor string` as JSON `vendor` and `Uncounted bool` as JSON `uncounted`; table output has a leading VENDOR column.
+- [x] Report rows are distinct for each exact vendor-and-feature identity, including capacity-only and usage-only identities; an `AnalyticsQuery.Feature` filter still applies across all vendors.
+- [x] An uncounted row has no finite purchased value, no finite headroom or saturation measures, and does not create missing-capacity or over-capacity quality; a missing sibling remains missing.
+- [x] Known zero at an authoritative snapshot is reported as finite zero rather than missing capacity, and finite capacity retains checked report arithmetic.
+- [x] Automated state-matrix tests cover finite, uncounted, missing, capacity-only, usage-only, mixed-vendor, ordering, quality counters, and overflow.
 
 **Depends on.** W-3.
 
@@ -157,10 +157,10 @@ These work items implement the [feature implementation plan](feature-implementat
 
 **Acceptance criteria.**
 
-- [ ] `goflexlmdb licenses parse [FILE|-]` accepts no path, `-`, or one file path and writes the compact W-1 `LicenseFile` JSON bytes followed by one newline only after parsing and closing succeed.
-- [ ] A parse, open, close, or output failure writes an operation-qualified `goflexlmdb:` error to standard error, produces no successful JSON, and returns status 1.
-- [ ] A missing or unknown licenses subcommand and more than one parse path print usage to standard error and return status 2.
-- [ ] Automated command tests cover standard input, file input, exact output, usage errors, and close and output failure ordering.
+- [x] `goflexlmdb licenses parse [FILE|-]` accepts no path, `-`, or one file path and writes the compact W-1 `LicenseFile` JSON bytes followed by one newline only after parsing and closing succeed.
+- [x] A parse, open, close, or output failure writes an operation-qualified `goflexlmdb:` error to standard error, produces no successful JSON, and returns status 1.
+- [x] A missing or unknown licenses subcommand and more than one parse path print usage to standard error and return status 2.
+- [x] Automated command tests cover standard input, file input, exact output, usage errors, and close and output failure ordering.
 
 **Depends on.** W-1.
 
@@ -191,14 +191,31 @@ These work items implement the [feature implementation plan](feature-implementat
 
 **Acceptance criteria.**
 
-- [ ] `goflexlmdb licenses import --db DB --pool POOL --effective-from RFC3339 --timezone AREA/LOCATION FILE` accepts exactly one input, requires an explicit loadable timezone, passes the unmodified path as `SourceName`, and is silent on success.
-- [ ] Import parses and closes input before opening the database; invalid input or close failure neither opens nor creates a database, while storage and other operational failures return status 1.
-- [ ] Usage and flag failures print usage to standard error and return status 2; all operational failures use the `goflexlmdb:` error form and return status 1.
-- [ ] `goflexlmdb entitlements replace`, CSV parsing, `sqlite.Entitlement`, and `Store.ReplaceEntitlements` are absent; the old command is rejected as a usage error.
-- [ ] README and demo material use synthetic license files, document version-1 recreation and vendor-aware capacity states, and contain no CSV entitlement import workflow.
-- [ ] Automated command tests cover source names, input-close and database-open ordering, silent success, statuses, old-command rejection, and unaffected log import, rebuild, denial, and queue commands.
+- [x] `goflexlmdb licenses import --db DB --pool POOL --effective-from RFC3339 --timezone AREA/LOCATION FILE` accepts exactly one input, requires an explicit loadable timezone, passes the unmodified path as `SourceName`, and is silent on success.
+- [x] Import parses and closes input before opening the database; invalid input or close failure neither opens nor creates a database, while storage and other operational failures return status 1.
+- [x] Usage and flag failures print usage to standard error and return status 2; all operational failures use the `goflexlmdb:` error form and return status 1.
+- [x] `goflexlmdb entitlements replace`, CSV parsing, `sqlite.Entitlement`, and `Store.ReplaceEntitlements` are absent; the old command is rejected as a usage error.
+- [x] README and demo material use synthetic license files, document version-1 recreation and vendor-aware capacity states, and contain no CSV entitlement import workflow.
+- [x] Automated command tests cover source names, input-close and database-open ordering, silent success, statuses, old-command rejection, and unaffected log import, rebuild, denial, and queue commands.
 
 **Depends on.** W-2, W-4, W-5.
+
+## Completion evidence
+
+All six work items are implemented and verified as of 2026-09-19.
+
+| Item | Primary automated evidence |
+| --- | --- |
+| W-1 | `license_test.go`, `license_conformance_test.go`, `testdata/licenses/`, `FuzzParseLicenseFile` |
+| W-2 | `sqlite/license_validation_test.go`: constructed values, UTC dates, canonical storage, replacement, rollback, cancellation, schema |
+| W-3 | `sqlite/license_timeline_test.go`: out-of-order and empty snapshots, expiration/START, folding, provenance, replacement, overflow |
+| W-4 | `sqlite/capacity_contract_test.go`, `sqlite/license_import_test.go`: vendor state matrix, range splitting, ordering, arithmetic |
+| W-5 | `cmd/goflexlmdb/license_command_test.go`: exact parse output, input close ordering, usage/source/output failures |
+| W-6 | `cmd/goflexlmdb/license_command_test.go`: import ordering, unchanged source names, silent success, retired command, runnable demo |
+
+Verification: formatting, all package tests, race tests, vet, build, whitespace
+checks, and bounded smoke runs of both decoder and license-parser fuzz targets.
+No implementation acceptance criteria remain deferred.
 
 ## Cut for Scope
 
