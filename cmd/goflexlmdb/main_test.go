@@ -73,3 +73,11 @@ func TestLicensesParseWritesLicenseDocumentFromStandardInput(t *testing.T) {
 		t.Fatalf("stdout=%q stderr=%q", output.String(), diagnostic.String())
 	}
 }
+
+func TestLicensesParseRejectsMalformedInputWithoutJSON(t *testing.T) {
+	var output, diagnostic bytes.Buffer
+	status := run([]string{"licenses", "parse"}, strings.NewReader("PACKAGE unsupported\n"), &output, &diagnostic)
+	if status != 1 || output.Len() != 0 || !strings.HasPrefix(diagnostic.String(), "goflexlmdb:") {
+		t.Fatalf("status=%d stdout=%q stderr=%q", status, output.String(), diagnostic.String())
+	}
+}
