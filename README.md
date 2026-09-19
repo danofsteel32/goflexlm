@@ -46,6 +46,14 @@ parse, 1 for content or I/O failures, and 2 for invalid arguments.
 
 ## SQLite usage analytics
 
+License files can also be read with `ParseLicenseFile(io.Reader)`. It returns
+one complete document containing SERVER, VENDOR, FEATURE, INCREMENT, and
+USE_SERVER records, preserving ordered metadata and physical source lines.
+It supports quoted values, continuations, CRLF, and unlimited logical line
+lengths. Unsupported directives or malformed records reject the entire
+document with a line-qualified error. Zero and `uncounted` counts normalize
+to uncounted capacity.
+
 The additive `sqlite` package imports activity facts into a purchaser-defined
 license pool and derives quantity-bearing usage and queue sessions. Imports
 are transactional and deduplicated by the exact source-file SHA-256 digest
