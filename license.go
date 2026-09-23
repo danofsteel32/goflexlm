@@ -17,7 +17,7 @@ type LicenseServer struct {
 	Attributes []LicenseAttribute `json:"attributes,omitempty"`
 }
 
-// LicenseVendor is a VENDOR record in a license document.
+// LicenseVendor is a VENDOR or legacy DAEMON record in a license document.
 type LicenseVendor struct {
 	Line       int                `json:"line"`
 	Name       string             `json:"name"`

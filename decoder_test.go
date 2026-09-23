@@ -161,6 +161,108 @@ func TestTimestampContextAndMidnight(t *testing.T) {
 	}
 }
 
+func TestNativeTimestampContextAndPaddedHours(t *testing.T) {
+	input := strings.Join([]string{
+		"13:46:51 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:51 UTC",
+		`13:46:52 (vendor) OUT: "editor" user@host`,
+		" 1:49:10 (lmgrd) TIMESTAMP 8/30/2025",
+		` 1:49:11 (vendor) IN: "editor" user@host`,
+		"12:00:00 (lmgrd) Server's System Date and Time: Sun Aug 31 2025 11:59:59 -04:00",
+		`12:00:01 (vendor) OUT: "editor" other@host`,
+	}, "\n")
+	d := NewDecoder(strings.NewReader(input))
+	var events []*Event
+	for d.Scan() {
+		result := d.Result()
+		if result.Diagnostic != nil {
+			t.Fatalf("line %d: unexpected diagnostic: %+v", result.Diagnostic.Line, result.Diagnostic)
+		}
+		events = append(events, result.Event)
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"2025-08-29T13:46:51Z",
+		"2025-08-29T13:46:52Z",
+		"2025-08-30T01:49:10Z",
+		"2025-08-30T01:49:11Z",
+		"2025-08-31T12:00:00-04:00",
+		"2025-08-31T12:00:01-04:00",
+	}
+	if len(events) != len(want) {
+		t.Fatalf("events=%d want %d", len(events), len(want))
+	}
+	for i, value := range want {
+		if events[i].LogTime.Time == nil || events[i].LogTime.Time.Format(time.RFC3339) != value {
+			t.Errorf("event %d timestamp=%v want %s", i, events[i].LogTime.Time, value)
+		}
+	}
+	if events[2].Raw != " 1:49:10 (lmgrd) TIMESTAMP 8/30/2025" || events[2].LogTime.Original != " 1:49:10" {
+		t.Fatalf("padded timestamp was not preserved: %+v", events[2])
+	}
+}
+
+func TestNativeTimestampRequiresKnownOffset(t *testing.T) {
+	d := NewDecoder(strings.NewReader(strings.Join([]string{
+		"01:00:00 (lmgrd) TIMESTAMP 8/30/2025",
+		`01:00:01 (vendor) OUT: "editor" user@host`,
+	}, "\n")))
+	for d.Scan() {
+		if result := d.Result(); result.Event == nil || result.Event.LogTime.Time != nil {
+			t.Fatalf("unexpected result without offset context: %+v", result)
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMalformedNativeTimestampsRecover(t *testing.T) {
+	input := strings.Join([]string{
+		"13:46:51 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:51 EST",
+		"13:46:52 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:52 UTC",
+		"13:46:53 (lmgrd) TIMESTAMP 2/30/2026",
+		`13:46:54 (vendor) OUT: "editor" user@host`,
+	}, "\n")
+	d := NewDecoder(strings.NewReader(input))
+	var diagnostics []*Diagnostic
+	var event *Event
+	for d.Scan() {
+		result := d.Result()
+		if result.Diagnostic != nil {
+			diagnostics = append(diagnostics, result.Diagnostic)
+		} else {
+			event = result.Event
+		}
+	}
+	if err := d.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 2 {
+		t.Fatalf("diagnostics=%+v", diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code != DiagnosticInvalidTimestamp {
+			t.Fatalf("diagnostic=%+v", diagnostic)
+		}
+	}
+	if event == nil || event.LogTime.Time == nil || event.LogTime.Time.Format(time.RFC3339) != "2025-08-29T13:46:54Z" {
+		t.Fatalf("recovery event=%+v", event)
+	}
+}
+
+func TestNativeTimestampContextIsPerDecoder(t *testing.T) {
+	first := NewDecoder(strings.NewReader("13:46:51 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:51 UTC"))
+	if !first.Scan() || first.Result().Event == nil || first.Result().Event.LogTime.Time == nil {
+		t.Fatalf("first result=%+v", first.Result())
+	}
+	second := NewDecoder(strings.NewReader(`13:46:52 (vendor) OUT: "editor" user@host`))
+	if !second.Scan() || second.Result().Event == nil || second.Result().Event.LogTime.Time != nil {
+		t.Fatalf("second result=%+v", second.Result())
+	}
+}
+
 func TestDiagnosticsRecoverAndPreserveRaw(t *testing.T) {
 	input := "not a log line\n25:00:00 (v) bad time\n01:00:00 (v) OUT: nonsense\r\n01:00:01 (v) TIMESTAMP"
 	d := NewDecoder(strings.NewReader(input))

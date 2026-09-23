@@ -53,10 +53,11 @@ fixed scanner token limit. Each decoder owns its timestamp context.
 2026-09-01T09:10:11-04:00 (acme) IN: "editor" alex@workstation
 ```
 
-Classic envelopes use `h:mm:ss` or `hh:mm:ss`; dated envelopes use RFC3339
-timestamps, including fractional seconds and an explicit UTC offset or `Z`.
-The parenthesized name becomes `Event.Daemon` and the following text becomes
-`Event.Message`.
+Classic envelopes use `h:mm:ss` or `hh:mm:ss`. A one-digit hour may have one
+leading padding space, as in ` 9:10:11`; that space remains in `Raw` and
+`LogTime.Original`. Dated envelopes use RFC3339 timestamps, including fractional
+seconds and an explicit UTC offset or `Z`. The parenthesized name becomes
+`Event.Daemon` and the following text becomes `Event.Message`.
 
 | Message prefix | Event kind |
 | --- | --- |
@@ -89,11 +90,27 @@ activity. Malformed recognized activities produce diagnostics instead.
 `Event.LogTime.Original` is the source timestamp text. `TimeOfDay` describes the
 clock component; `Time` points to a resolved instant when one is available.
 
-A classic line before the first dated envelope has `Time == nil`. A dated envelope
-establishes a calendar date and a fixed UTC offset for subsequent classic lines.
+A classic line before the first dated record has `Time == nil`. An RFC3339
+envelope establishes a calendar date and fixed UTC offset. Native FlexLM logs
+can establish the same context with this message form:
+
+```text
+13:46:51 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:51 UTC
+```
+
+The native full-date form accepts `UTC`, `GMT`, or a numeric offset such as
+`-0400` or `-04:00`. The envelope clock is the event clock; the message supplies
+the date and offset. Other zone abbreviations are rejected rather than assumed
+to be UTC.
+
+After an offset is known, a native `TIMESTAMP M/D/YYYY` message resets the date
+without changing that offset. A date-only marker before any known offset remains
+unresolved and does not supply context. Malformed native date markers produce an
+`invalid_timestamp` diagnostic.
+
 Whenever a subsequent classic clock moves backward, the decoder advances its
-date by one day. A later dated envelope resets the context. Earlier unresolved
-events are not retroactively updated.
+date by one day. A later RFC3339 envelope or native full-date message resets the
+date and offset. Earlier unresolved events are not retroactively updated.
 
 This rule assumes chronological input: an out-of-order classic line can look like
 midnight rollover. It also carries a fixed offset, not an IANA timezone with

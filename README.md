@@ -34,7 +34,11 @@ if err := decoder.Err(); err != nil {
 Blank lines are skipped. Invalid content produces a `Diagnostic` and decoding
 continues; `Decoder.Err` is reserved for reader failures. A classic timestamp
 is resolved to an instant only after a dated record establishes a date and UTC
-offset. Midnight rollover is then tracked within that input stream.
+offset. Dated records include RFC3339 envelopes and native FlexLM
+`Server's System Date and Time` messages; later `TIMESTAMP M/D/YYYY` messages
+reset the date while retaining the known offset. Right-aligned one-digit hours
+such as ` 1:02:03` are accepted. Midnight rollover is then tracked within that
+input stream.
 
 ## Command line
 
@@ -52,12 +56,12 @@ parse, 1 for content or I/O failures, and 2 for invalid arguments.
 ## SQLite usage analytics
 
 License files can also be read with `ParseLicenseFile(io.Reader)`. It returns
-one complete document containing SERVER, VENDOR, FEATURE, INCREMENT, and
-USE_SERVER records, preserving ordered metadata and physical source lines.
-It supports quoted values, continuations, CRLF, and unlimited logical line
-lengths. Unsupported directives or malformed records reject the entire
-document with a line-qualified error. Zero and `uncounted` counts normalize
-to uncounted capacity.
+one complete document containing SERVER, VENDOR or legacy DAEMON, FEATURE,
+INCREMENT, and USE_SERVER records, preserving ordered metadata and physical
+source lines. It supports quoted values, including values spanning backslash
+continuations, CRLF, and unlimited logical line lengths. Unsupported directives
+or malformed records reject the entire document with a line-qualified error.
+Zero and `uncounted` counts normalize to uncounted capacity.
 
 The additive `sqlite` package imports activity facts into a purchaser-defined
 license pool and derives quantity-bearing usage and queue sessions. Imports

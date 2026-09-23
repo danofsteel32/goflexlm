@@ -11,7 +11,8 @@ import (
 )
 
 var (
-	classicEnvelope  = regexp.MustCompile(`^(\d{1,2}:\d{2}:\d{2}) \(([^()]+)\)(?: (.*))?$`)
+	classicEnvelope  = regexp.MustCompile(`^((?: \d|\d{1,2}):\d{2}:\d{2}) \(([^()]+)\)(?: (.*))?$`)
+	nativeDateMarker = regexp.MustCompile(`^TIMESTAMP (\d{1,2})/(\d{1,2})/(\d{4})$`)
 	principalPattern = regexp.MustCompile(`^(?:"([^"]+)"|(\S+))\s+(\S+?)(?:\s+\[([^]]*)\])?(?:\s+\((\d+)(?:\s+licenses?)?\))?$`)
 	deniedCount      = regexp.MustCompile(`^(\d+)\s+(?:"([^"]+)"|(\S+))\s+to\s+(\S+)$`)
 	denialError      = regexp.MustCompile(`\((-?\d+)\s*,\s*(-?\d+)\)\s*$`)
@@ -85,6 +86,10 @@ func (d *Decoder) parseLine(raw string) Result {
 			zone:    time.FixedZone("", off),
 			lastTOD: timeOfDayDuration(tod),
 		}
+	} else if resolved, recognized, err := d.resolveNativeTimestamp(message, tod); err != nil {
+		return diagnostic(d.line, raw, DiagnosticInvalidTimestamp, err.Error())
+	} else if recognized {
+		lt.Time = resolved
 	} else if d.context != nil {
 		cur := timeOfDayDuration(tod)
 		if cur < d.context.lastTOD {
@@ -103,6 +108,90 @@ func (d *Decoder) parseLine(raw string) Result {
 		kind = KindMessage
 	}
 	return Result{Event: &Event{Line: d.line, Raw: raw, Daemon: daemon, Message: message, Kind: kind, LogTime: lt, Activity: activity}}
+}
+
+func (d *Decoder) resolveNativeTimestamp(message string, tod time.Time) (*time.Time, bool, error) {
+	const systemDatePrefix = "Server's System Date and Time: "
+	if strings.HasPrefix(message, systemDatePrefix) {
+		date, zone, err := parseNativeSystemDate(strings.TrimPrefix(message, systemDatePrefix))
+		if err != nil {
+			return nil, true, err
+		}
+		at := time.Date(date.Year(), date.Month(), date.Day(), tod.Hour(), tod.Minute(), tod.Second(), tod.Nanosecond(), zone)
+		d.context = &timeContext{date: startOfDay(at), zone: zone, lastTOD: timeOfDayDuration(tod)}
+		return &at, true, nil
+	}
+	if strings.HasPrefix(message, "TIMESTAMP ") {
+		match := nativeDateMarker.FindStringSubmatch(message)
+		if match == nil {
+			return nil, true, errors.New("invalid TIMESTAMP date")
+		}
+		month, _ := strconv.Atoi(match[1])
+		day, _ := strconv.Atoi(match[2])
+		year, _ := strconv.Atoi(match[3])
+		date, err := strictDate(year, time.Month(month), day)
+		if err != nil {
+			return nil, true, err
+		}
+		if d.context == nil {
+			return nil, true, nil
+		}
+		at := time.Date(date.Year(), date.Month(), date.Day(), tod.Hour(), tod.Minute(), tod.Second(), tod.Nanosecond(), d.context.zone)
+		d.context.date = startOfDay(at)
+		d.context.lastTOD = timeOfDayDuration(tod)
+		return &at, true, nil
+	}
+	return nil, false, nil
+}
+
+func parseNativeSystemDate(value string) (time.Time, *time.Location, error) {
+	fields := strings.Fields(value)
+	if len(fields) != 6 {
+		return time.Time{}, nil, errors.New("invalid system date and time")
+	}
+	parsed, err := time.Parse("Mon Jan 2 2006 15:04:05", strings.Join(fields[:5], " "))
+	if err != nil {
+		return time.Time{}, nil, errors.New("invalid system date and time")
+	}
+	zone, err := parseNativeZone(fields[5])
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	return parsed, zone, nil
+}
+
+func parseNativeZone(value string) (*time.Location, error) {
+	if value == "UTC" || value == "GMT" {
+		return time.FixedZone(value, 0), nil
+	}
+	layout := "-0700"
+	if len(value) == 6 {
+		layout = "-07:00"
+	}
+	parsed, err := time.Parse(layout, value)
+	if err != nil {
+		return nil, errors.New("system date and time has an unsupported UTC offset")
+	}
+	_, offset := parsed.Zone()
+	if offset < -14*60*60 || offset > 14*60*60 {
+		return nil, errors.New("system date and time has an unsupported UTC offset")
+	}
+	return time.FixedZone(value, offset), nil
+}
+
+func strictDate(year int, month time.Month, day int) (time.Time, error) {
+	if year < 1 || month < time.January || month > time.December || day < 1 {
+		return time.Time{}, errors.New("invalid TIMESTAMP date")
+	}
+	date := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	if date.Year() != year || date.Month() != month || date.Day() != day {
+		return time.Time{}, errors.New("invalid TIMESTAMP date")
+	}
+	return date, nil
+}
+
+func startOfDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 func diagnostic(line int, raw, code, message string) Result {
@@ -157,6 +246,7 @@ func parseDaemonMessage(s string) (string, string, bool) {
 }
 
 func padHour(s string) string {
+	s = strings.TrimPrefix(s, " ")
 	if len(s) == 7 {
 		return "0" + s
 	}

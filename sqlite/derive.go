@@ -247,7 +247,7 @@ func closeAllocations(ctx context.Context, insert *sql.Stmt, p *partition, close
 	ambiguousTier := 0
 	for remaining > 0 {
 		bestTier := 0
-		var candidates []int
+		candidate, candidateCount := -1, 0
 		for index, allocation := range p.open {
 			if allocation.quantity == 0 || !compatible(allocation.identity, close.identity) {
 				continue
@@ -258,13 +258,15 @@ func closeAllocations(ctx context.Context, insert *sql.Stmt, p *partition, close
 			}
 			if tier > bestTier {
 				bestTier = tier
-				candidates = candidates[:0]
+				candidate = index
+				candidateCount = 1
+				continue
 			}
 			if tier == bestTier {
-				candidates = append(candidates, index)
+				candidateCount++
 			}
 		}
-		if len(candidates) == 0 {
+		if candidate == -1 {
 			end := close.ts
 			closing := close.id
 			if err := insertSession(ctx, insert, p, nil, &end, remaining, "orphan", 0, false, nil, &closing); err != nil {
@@ -272,10 +274,10 @@ func closeAllocations(ctx context.Context, insert *sql.Stmt, p *partition, close
 			}
 			return nil
 		}
-		if len(candidates) > 1 {
+		if candidateCount > 1 {
 			ambiguousTier = bestTier
 		}
-		allocation := p.open[candidates[0]]
+		allocation := p.open[candidate]
 		quantity := remaining
 		if quantity > allocation.quantity {
 			quantity = allocation.quantity
@@ -285,10 +287,21 @@ func closeAllocations(ctx context.Context, insert *sql.Stmt, p *partition, close
 			ambiguousTier == bestTier, opening, &closing); err != nil {
 			return err
 		}
-		allocation.quantity -= quantity
+		p.open = consumeOpenAllocation(p.open, candidate, quantity)
 		remaining -= quantity
 	}
 	return nil
+}
+
+func consumeOpenAllocation(open []*openAllocation, index, quantity int) []*openAllocation {
+	open[index].quantity -= quantity
+	if open[index].quantity != 0 {
+		return open
+	}
+	copy(open[index:], open[index+1:])
+	last := len(open) - 1
+	open[last] = nil
+	return open[:last]
 }
 
 func insertSession(ctx context.Context, statement *sql.Stmt, p *partition, start any, end *int64,

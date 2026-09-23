@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/danofsteel32/goflexlm/internal/licenserules"
@@ -16,6 +17,14 @@ type licenseToken struct {
 	attribute bool
 }
 
+type licenseLexer struct {
+	tokens    []licenseToken
+	token     strings.Builder
+	tokenLine int
+	attribute bool
+	quoted    bool
+}
+
 // ParseLicenseFile reads a complete supported FlexLM license document.
 // Any malformed record or reader failure returns a zero document and a line error.
 // Working memory beyond the returned document is proportional to the longest logical line.
@@ -25,7 +34,7 @@ func ParseLicenseFile(r io.Reader) (LicenseFile, error) {
 	physical := 0
 	for {
 		start := physical + 1
-		var tokens []licenseToken
+		var lexer licenseLexer
 		for {
 			raw, err := reader.ReadString('\n')
 			if err != nil && err != io.EOF {
@@ -42,11 +51,10 @@ func ParseLicenseFile(r io.Reader) (LicenseFile, error) {
 			if physical == start && (strings.TrimSpace(raw) == "" || strings.HasPrefix(strings.TrimSpace(raw), "#")) {
 				break
 			}
-			part, continued, lexErr := lexLicenseLine(raw, physical)
+			continued, lexErr := lexer.scanLine(raw, physical)
 			if lexErr != nil {
 				return LicenseFile{}, lexErr
 			}
-			tokens = append(tokens, part...)
 			if !continued {
 				break
 			}
@@ -54,10 +62,10 @@ func ParseLicenseFile(r io.Reader) (LicenseFile, error) {
 				return LicenseFile{}, licenseError(start, "unfinished continuation")
 			}
 		}
-		if len(tokens) == 0 {
+		if len(lexer.tokens) == 0 {
 			continue
 		}
-		if err := parseLicenseRecord(&file, tokens, start); err != nil {
+		if err := parseLicenseRecord(&file, lexer.tokens, start); err != nil {
 			return LicenseFile{}, err
 		}
 	}
@@ -69,58 +77,96 @@ func licenseError(line int, format string, args ...any) error {
 
 func licenseSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\v' || c == '\f' }
 
-func lexLicenseLine(s string, line int) ([]licenseToken, bool, error) {
+func (l *licenseLexer) scanLine(s string, line int) (bool, error) {
 	if !utf8.ValidString(s) {
-		return nil, false, licenseError(line, "invalid UTF-8")
+		return false, licenseError(line, "invalid UTF-8")
 	}
-	var tokens []licenseToken
-	for i := 0; i < len(s); {
+	// Find the only possible continuation marker once. Checking the suffix at
+	// every backslash repeatedly scans trailing whitespace on long values.
+	continuation := len(strings.TrimRightFunc(s, unicode.IsSpace)) - 1
+	if continuation >= 0 && s[continuation] != '\\' {
+		continuation = -1
+	}
+	i := 0
+	if l.quoted {
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+			i++
+		}
+		continued, err := l.scanQuoted(s, &i, line, continuation)
+		if err != nil || continued {
+			return continued, err
+		}
+	}
+	for i < len(s) {
 		for i < len(s) && licenseSpace(s[i]) {
 			i++
 		}
 		if i == len(s) {
 			break
 		}
-		if s[i] == '\\' && strings.TrimSpace(s[i+1:]) == "" {
-			return tokens, true, nil
+		if i == continuation {
+			return true, nil
 		}
-		var b strings.Builder
-		attribute := false
+		l.tokenLine = line
 		for i < len(s) && !licenseSpace(s[i]) {
-			if s[i] == '\\' && strings.TrimSpace(s[i+1:]) == "" {
-				if b.Len() > 0 {
-					tokens = append(tokens, licenseToken{b.String(), line, attribute})
+			if i == continuation {
+				if l.tokenLine != 0 {
+					l.emitToken()
 				}
-				return tokens, true, nil
+				return true, nil
 			}
 			if s[i] == '"' {
-				if b.Len() != 0 && !strings.HasSuffix(b.String(), "=") {
-					return nil, false, licenseError(line, "quote must start a token or attribute value")
+				if l.token.Len() != 0 && !strings.HasSuffix(l.token.String(), "=") {
+					return false, licenseError(line, "quote must start a token or attribute value")
 				}
 				i++
-				begin := i
-				for i < len(s) && s[i] != '"' {
-					i++
-				}
-				if i == len(s) {
-					return nil, false, licenseError(line, "unterminated quote")
-				}
-				b.WriteString(s[begin:i])
-				i++
-				if i < len(s) && !licenseSpace(s[i]) {
-					return nil, false, licenseError(line, "text after closing quote")
+				l.quoted = true
+				continued, err := l.scanQuoted(s, &i, line, continuation)
+				if err != nil || continued {
+					return continued, err
 				}
 				break
 			}
 			if s[i] == '=' {
-				attribute = true
+				l.attribute = true
 			}
-			b.WriteByte(s[i])
+			l.token.WriteByte(s[i])
 			i++
 		}
-		tokens = append(tokens, licenseToken{b.String(), line, attribute})
+		if l.tokenLine != 0 {
+			l.emitToken()
+		}
 	}
-	return tokens, false, nil
+	return false, nil
+}
+
+func (l *licenseLexer) scanQuoted(s string, i *int, line, continuation int) (bool, error) {
+	begin := *i
+	for *i < len(s) {
+		if s[*i] == '"' {
+			l.token.WriteString(s[begin:*i])
+			(*i)++
+			l.quoted = false
+			if *i < len(s) && !licenseSpace(s[*i]) {
+				return false, licenseError(line, "text after closing quote")
+			}
+			l.emitToken()
+			return false, nil
+		}
+		if *i == continuation {
+			l.token.WriteString(s[begin:*i])
+			return true, nil
+		}
+		(*i)++
+	}
+	return false, licenseError(line, "unterminated quote")
+}
+
+func (l *licenseLexer) emitToken() {
+	l.tokens = append(l.tokens, licenseToken{l.token.String(), l.tokenLine, l.attribute})
+	l.token.Reset()
+	l.tokenLine = 0
+	l.attribute = false
 }
 
 func requiredLicenseTokens(t []licenseToken, n, start int) error {
@@ -176,7 +222,7 @@ func parseLicenseRecord(file *LicenseFile, t []licenseToken, start int) error {
 			s.Attributes = append(s.Attributes, a)
 		}
 		file.Servers = append(file.Servers, s)
-	case "VENDOR":
+	case "VENDOR", "DAEMON":
 		if err := requiredLicenseTokens(t, 2, start); err != nil {
 			return err
 		}

@@ -100,6 +100,50 @@ func TestImportDeriveAndReports(t *testing.T) {
 	}
 }
 
+func TestImportNativeTimestampsReachReports(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "usage.db"), OpenOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	input := strings.Join([]string{
+		" 8:59:59 (lmgrd) Server's System Date and Time: Wed Jun 10 2026 08:59:59 UTC",
+		` 9:00:00 (vendor) OUT: "editor" user@host`,
+		`10:00:00 (vendor) IN: "editor" user@host`,
+		" 1:00:00 (lmgrd) TIMESTAMP 6/11/2026",
+		` 1:00:01 (vendor) DENIED: "editor" other@host (Licensed number reached. (-4,342))`,
+	}, "\n")
+	result, err := store.Import(ctx, ImportRequest{
+		Reader: strings.NewReader(input), Pool: "engineering", Stream: "server-a", SourceName: "native.log",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActivityCount != 3 || result.OmittedMessageCount != 2 || result.UnresolvedTimestampCount != 0 || len(result.DiagnosticCounts) != 0 {
+		t.Fatalf("import result = %+v", result)
+	}
+
+	from := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC)
+	capacity, err := store.Capacity(ctx, AnalyticsQuery{Pool: "engineering", Feature: "editor", From: from, To: to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(capacity.Buckets) != 1 || capacity.Buckets[0].LowerPeak != 1 || capacity.Buckets[0].UpperPeak != 1 || capacity.Quality.UnresolvedTime != 0 {
+		t.Fatalf("capacity = %+v", capacity)
+	}
+	denials, err := store.Denials(ctx, AnalyticsQuery{Pool: "engineering", Feature: "editor", From: from, To: to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(denials.Buckets) != 1 || denials.Buckets[0].Events != 1 || denials.Buckets[0].Licenses != 1 {
+		t.Fatalf("denials = %+v", denials)
+	}
+}
+
 func TestChronologicalImportsContinueOpenAllocations(t *testing.T) {
 	t.Parallel()
 	store, err := Open(context.Background(), ":memory:", OpenOptions{})

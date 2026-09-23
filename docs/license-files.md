@@ -36,20 +36,24 @@ normalize to uppercase. Names and ordinary metadata retain their supplied text.
 | Directive | Required fields after the directive | Optional data |
 | --- | --- | --- |
 | `SERVER` | Host, host ID | Port, ordered attributes |
-| `VENDOR` | Vendor name | Daemon path, positional options path and port, key/value attributes |
+| `VENDOR`, `DAEMON` | Vendor name | Daemon path, positional options path and port, key/value attributes |
 | `FEATURE`, `INCREMENT` | Feature, vendor, version, expiration, count | Ordered attributes, including `START` |
 | `USE_SERVER` | None | None; duplicate directives are rejected |
 
-SERVER ports range from 1 through 65535. Vendor `PORT` and `EPORT` values allow
+SERVER ports range from 1 through 65535. `DAEMON` is the legacy spelling of
+`VENDOR`; both produce a `LicenseVendor`. Vendor `PORT` and `EPORT` values allow
 0 through 65535. Positional vendor options and port normalize to `OPTIONS` and
 `PORT` attributes. Unknown directives, including unimplemented FlexLM directives,
 reject the document rather than being silently ignored.
 
 Blank lines and whole-line `#` comments are skipped. LF, CRLF, and final lines
-without a newline are accepted. A trailing backslash outside quotes continues
-the logical record. Double quotes may surround a whole token or attribute value;
-they must close on that physical line. This is not a shell quoting language:
-escaped quotes and inline comment stripping are not provided.
+without a newline are accepted. A trailing backslash continues the logical
+record, including while a double-quoted token or attribute value is open. Inside
+a quoted value, the parser preserves bytes before the backslash and removes the
+backslash, line ending, and leading spaces and tabs on the next line. It
+does not insert a separator, so include a space before the backslash when the
+value requires one. This is not a shell quoting language: escaped quotes and
+inline comment stripping are not provided.
 
 Record `Line` values identify the first physical line of a logical record.
 Attributes retain order and duplicates except where a recognized rule rejects

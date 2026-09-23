@@ -67,9 +67,11 @@ endings. Deduplication is per stream, not by filename or individual event. Diffe
 files with overlapping log content can therefore add overlapping activity.
 
 Each import creates its own decoder. A classic line at the start of a rotated
-file remains unresolved until a dated envelope in that file establishes context;
-a preceding file does not supply it. Unresolved activity is retained for audit
-but excluded from sessions and time-based measures.
+file remains unresolved until an RFC3339 envelope or native full-date message in
+that file establishes date and offset context; a preceding file does not supply
+it. A native date-only `TIMESTAMP` marker cannot supply a missing offset.
+Unresolved activity is retained for audit but excluded from sessions and
+time-based measures.
 
 `ImportResult` reports the digest, duplicate flag, byte and physical-line counts,
 activity count, omitted messages, diagnostic counts by code, and unresolved
@@ -161,6 +163,12 @@ Connections enable foreign keys, WAL, a five-second busy timeout, and
 `synchronous=NORMAL`. Each store serializes its writers; WAL permits concurrent
 readers. NORMAL preserves database consistency but the latest commit can be lost
 after power failure. Retain original logs and license files as recovery inputs.
+
+Each source-file import remains one transaction through session derivation. A
+large import can therefore grow the `-wal` sidecar to several times the source
+size before commit, and other connections do not see its rows until it finishes.
+Allow space for both the database and the temporary WAL. Cancellation or failure
+rolls back the complete source-file import.
 
 New database files use mode 0600; WAL and shared-memory sidecars are secured when
 available. Existing database file permissions are not rewritten. Stored activity

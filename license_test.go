@@ -85,3 +85,61 @@ func TestParseLicenseFileNormalizesVendorPositionalOptions(t *testing.T) {
 		t.Fatalf("attributes = %+v, want %+v", got, want)
 	}
 }
+
+func TestParseLicenseFileAcceptsLegacyDaemonDirective(t *testing.T) {
+	for _, directive := range []string{"DAEMON", "daemon"} {
+		t.Run(directive, func(t *testing.T) {
+			input := directive + " cdslmd /opt/cadence/bin/cdslmd /opt/cadence/cdslmd.opt port=27001\n"
+			file, err := ParseLicenseFile(strings.NewReader(input))
+			if err != nil {
+				t.Fatalf("ParseLicenseFile() error = %v", err)
+			}
+			if len(file.Vendors) != 1 {
+				t.Fatalf("vendor count = %d, want 1", len(file.Vendors))
+			}
+			vendor := file.Vendors[0]
+			want := []LicenseAttribute{
+				{Name: "OPTIONS", Value: "/opt/cadence/cdslmd.opt", HasValue: true},
+				{Name: "port", Value: "27001", HasValue: true},
+			}
+			if vendor.Line != 1 || vendor.Name != "cdslmd" || vendor.DaemonPath != "/opt/cadence/bin/cdslmd" {
+				t.Fatalf("vendor = %+v", vendor)
+			}
+			if len(vendor.Attributes) != len(want) || vendor.Attributes[0] != want[0] || vendor.Attributes[1] != want[1] {
+				t.Fatalf("attributes = %+v, want %+v", vendor.Attributes, want)
+			}
+		})
+	}
+}
+
+func TestParseLicenseFileContinuesQuotedAttributes(t *testing.T) {
+	input := "FEATURE LicFileVersion cdslmd 2018.0 permanent 1 CHECKSUM \\\n" +
+		"\tVENDOR_STRING=\"site one \\\n" +
+		"\tcontinued\" DUP_GROUP=SITE \\\n" +
+		"\tSIGN2=\"195E 5CA5 \\\n" +
+		"\tB357 1DD3 \\\n" +
+		"\tC0B1\" V7.1_LK=5F4C98A1"
+	file, err := ParseLicenseFile(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseLicenseFile() error = %v", err)
+	}
+	if len(file.Features) != 1 {
+		t.Fatalf("feature count = %d, want 1", len(file.Features))
+	}
+	feature := file.Features[0]
+	want := []LicenseAttribute{
+		{Name: "CHECKSUM"},
+		{Name: "VENDOR_STRING", Value: "site one continued", HasValue: true},
+		{Name: "DUP_GROUP", Value: "SITE", HasValue: true},
+		{Name: "SIGN2", Value: "195E 5CA5 B357 1DD3 C0B1", HasValue: true},
+		{Name: "V7.1_LK", Value: "5F4C98A1", HasValue: true},
+	}
+	if feature.Line != 1 || len(feature.Attributes) != len(want) {
+		t.Fatalf("feature = %+v", feature)
+	}
+	for index := range want {
+		if feature.Attributes[index] != want[index] {
+			t.Fatalf("attribute %d = %+v, want %+v", index, feature.Attributes[index], want[index])
+		}
+	}
+}
