@@ -76,6 +76,17 @@ and a trailing positive license count. An omitted count means one. For example:
 09:10:11 (acme) OUT: "editor" alex@workstation [checkout-42] (2 licenses)
 ```
 
+Check-ins also accept a trailing `(USER_REMOVED)` or `(SHUTDOWN)` administrative
+return marker:
+
+```text
+09:10:12 (acme) IN: "editor" alex@workstation (USER_REMOVED)
+```
+
+The marker remains in `Event.Message` and `Event.Raw`; the activity has the same
+principal and quantity as an ordinary check-in. Unknown trailing markers remain
+diagnostics.
+
 Verbose activities use `^^^` delimiters. Their version, user, IP, PID, handle,
 in-use count, total count, project, Flex version/revision, date, time, and duplicate
 group fields remain text in `Activity.Verbose`, preserving placeholders such as

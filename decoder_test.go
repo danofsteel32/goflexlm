@@ -122,6 +122,55 @@ func TestVerboseActivities(t *testing.T) {
 	}
 }
 
+func TestAdministrativeCheckins(t *testing.T) {
+	for _, tc := range []struct {
+		body  string
+		count int
+		data  string
+	}{
+		{`"feature" alice@host  (USER_REMOVED)`, 1, ""},
+		{`"feature" alice@host [job-42] (3 licenses) (USER_REMOVED)`, 3, "job-42"},
+		{`"feature" alice@host  (SHUTDOWN)`, 1, ""},
+		{`"feature" alice@host [job-42] (3 licenses) (SHUTDOWN)`, 3, "job-42"},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			line := "14:08:55 (vendor) IN: " + tc.body
+			d := NewDecoder(strings.NewReader(line + "\r\n"))
+			if !d.Scan() || d.Result().Event == nil {
+				t.Fatalf("result = %+v", d.Result())
+			}
+			e := d.Result().Event
+			a := e.Activity
+			if e.Kind != KindCheckin || e.Raw != line || e.Message != "IN: "+tc.body || a == nil || a.Feature != "feature" || a.User != "alice" || a.Host != "host" || a.Licenses != tc.count || a.CheckoutData != tc.data {
+				t.Fatalf("event = %+v, activity = %+v", e, a)
+			}
+		})
+	}
+	for _, message := range []string{
+		`IN: "feature" alice@host (USER_REMOVED`,
+		`IN: "feature" alice@host (UNKNOWN_REASON)`,
+		`IN: "feature" alice@host (0 licenses) (USER_REMOVED)`,
+		`IN: "feature" alice@ (USER_REMOVED)`,
+		`IN: "feature" alice@host (USER_REMOVED) (USER_REMOVED)`,
+		`IN: "feature" alice@host (SHUTDOWN) (USER_REMOVED)`,
+		`OUT: "feature" alice@host (USER_REMOVED)`,
+		`OUT: "feature" alice@host (SHUTDOWN)`,
+	} {
+		t.Run(message, func(t *testing.T) {
+			d := NewDecoder(strings.NewReader("14:08:55 (vendor) " + message + "\n14:08:56 (vendor) IN: feature alice@host"))
+			if !d.Scan() || d.Result().Diagnostic == nil || d.Result().Diagnostic.Code != DiagnosticInvalidActivity {
+				t.Fatalf("result = %+v", d.Result())
+			}
+			if !d.Scan() || d.Result().Event == nil || d.Result().Event.Kind != KindCheckin {
+				t.Fatalf("recovery result = %+v", d.Result())
+			}
+			if d.Scan() || d.Err() != nil {
+				t.Fatalf("err = %v", d.Err())
+			}
+		})
+	}
+}
+
 func TestVerboseProjectNameMayContainSpaces(t *testing.T) {
 	line := `08:41:54 (demo) OUT: "f1" @host ^^^ 1.0 alice 127.0.0.1 1 h 1 3 a project name 11 19 8-8-2023 8:41:56 NO ^^^`
 	d := NewDecoder(strings.NewReader(line))

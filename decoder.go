@@ -280,6 +280,16 @@ func parseActivity(message string) (Kind, *Activity, bool, error) {
 }
 
 func parseActivityBody(kind Kind, body string) (*Activity, error) {
+	// Administrative returns are check-ins too; retain the reason in Message
+	// and Raw while parsing the same principal and quantity as a normal return.
+	if kind == KindCheckin {
+		for _, suffix := range []string{" (USER_REMOVED)", " (SHUTDOWN)"} {
+			if strings.HasSuffix(body, suffix) {
+				body = strings.TrimSpace(strings.TrimSuffix(body, suffix))
+				break
+			}
+		}
+	}
 	if strings.Contains(body, "^^^") {
 		return parseVerbose(kind, body)
 	}

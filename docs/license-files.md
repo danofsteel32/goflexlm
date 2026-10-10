@@ -1,4 +1,4 @@
-# License files and snapshots
+# License files
 
 `goflexlm.ParseLicenseFile(io.Reader)` reads a complete supported license document.
 It returns `(LicenseFile, error)`. Any malformed record, unsupported directive,
@@ -76,31 +76,3 @@ a bare `0000` is not a date. `START` must contain a finite date.
 Successful empty input produces empty `servers`, `vendors`, and `features`
 arrays with `use_server: false`. The [canonical corpus](../testdata/licenses/conforming.lic)
 and its [expected JSON](../testdata/licenses/conforming.json) show the full shape.
-Run `goflexlmdb licenses parse [FILE|-]` to inspect it without opening a database.
-
-## Import an authoritative capacity snapshot
-
-`Store.ImportLicenseFile(ctx, sqlite.LicenseImportRequest{...})` accepts the parsed
-`File`, a `Pool`, `SourceName`, `EffectiveFrom`, and an explicit `Timezone`.
-The timezone must be loadable as `UTC` or an IANA location such as
-`America/New_York`. The store validates caller-built documents as well as parsed
-documents before acquiring its writer lock or changing storage.
-
-Every file describes the entire pool from its effective instant until the next
-snapshot. Importing at the same instant atomically replaces the existing
-snapshot. Omitting a previously known vendor/feature sets its capacity to known
-zero. Empty, comment-only, and SERVER/VENDOR-only snapshots end known capacity.
-
-Within a snapshot, the first FEATURE for each vendor/feature and all INCREMENT
-records contribute capacity. Versions and other pooling attributes remain
-metadata; they do not create separate capacity groups. Any active uncounted
-contributor makes the combined capacity uncounted.
-
-START activates at local midnight, never earlier than the snapshot's effective
-instant. A finite expiration stops capacity at the start of the printed local
-date, not at its end. The store persists the resolved UTC boundaries so later
-rebuilds retain the original interpretation.
-
-Capacity matching requires exact license-vendor and log-daemon spelling. See
-[SQLite analytics](sqlite.md) for the distinction between zero, uncounted, and
-missing capacity, and the [CLI guide](cli.md) for import commands.
