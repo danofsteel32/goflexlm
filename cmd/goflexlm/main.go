@@ -1,8 +1,9 @@
-// Command goflexlm converts a FlexNet Publisher debug log to JSON Lines.
+// Command goflexlm converts FlexNet debug logs and license files to JSON.
 package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -16,16 +17,55 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	usage := func() {
+		fmt.Fprintln(stderr, "usage: goflexlm <command> [options] [FILE|-]")
+		fmt.Fprintln(stderr, "\nCommands:")
+		fmt.Fprintln(stderr, "  lmgrd    Convert a debug log to JSON Lines")
+		fmt.Fprintln(stderr, "  license  Convert a license file to JSON")
+		fmt.Fprintln(stderr, "\nUse goflexlm <command> --help for command help.")
+	}
+	if len(args) == 0 {
+		usage()
+		return 2
+	}
+	command := args[0]
+	var parse func(io.Reader, io.Writer, io.Writer) int
+	switch command {
+	case "lmgrd":
+		parse = runLog
+	case "license":
+		parse = runLicense
+	case "-h", "--help":
+		usage()
+		return 0
+	default:
+		fmt.Fprintf(stderr, "goflexlm: unknown command %q\n", command)
+		usage()
+		return 2
+	}
+
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	flags.Usage = func() {
+		fmt.Fprintf(stderr, "usage: goflexlm %s [options] [FILE|-]\n", command)
+		fmt.Fprintln(stderr, "Read FILE, or standard input when FILE is omitted or is -.")
+		flags.PrintDefaults()
+	}
+	if err := flags.Parse(args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+	args = flags.Args()
 	if len(args) > 1 {
-		fmt.Fprintln(stderr, "usage: goflexlm [FILE|-]")
+		flags.Usage()
 		return 2
 	}
 
 	input := stdin
-	var file *os.File
 	if len(args) == 1 && args[0] != "-" {
-		var err error
-		file, err = os.Open(args[0])
+		file, err := os.Open(args[0])
 		if err != nil {
 			fmt.Fprintf(stderr, "goflexlm: %v\n", err)
 			return 1
@@ -34,6 +74,27 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		input = file
 	}
 
+	return parse(input, stdout, stderr)
+}
+
+func runLicense(input io.Reader, stdout, stderr io.Writer) int {
+	document, err := goflexlm.ParseLicenseFile(input)
+	if err != nil {
+		fmt.Fprintf(stderr, "goflexlm: %v\n", err)
+		return 1
+	}
+	if len(document.Servers)+len(document.Vendors)+len(document.Features) == 0 && !document.UseServer {
+		fmt.Fprintln(stderr, "goflexlm: no parseable license records")
+		return 1
+	}
+	if err := json.NewEncoder(stdout).Encode(document); err != nil {
+		fmt.Fprintf(stderr, "goflexlm: write output: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runLog(input io.Reader, stdout, stderr io.Writer) int {
 	decoder := goflexlm.NewDecoder(input)
 	encoder := json.NewEncoder(stdout)
 	parsed, skipped := 0, 0

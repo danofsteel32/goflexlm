@@ -1,5 +1,14 @@
 # License files
 
+To parse a license file from the command line:
+
+```sh
+goflexlm license server.lic
+```
+
+This writes one JSON document. See the [command reference](cli.md) for input
+options and exit statuses.
+
 `goflexlm.ParseLicenseFile(io.Reader)` reads a complete supported license document.
 It returns `(LicenseFile, error)`. Any malformed record, unsupported directive,
 or reader failure returns a zero document and a line-qualified error. It does
