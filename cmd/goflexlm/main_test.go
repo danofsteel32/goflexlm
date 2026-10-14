@@ -187,6 +187,8 @@ func TestRunFlags(t *testing.T) {
 		{[]string{"lmgrd", "one", "two"}, 2},
 		{[]string{"lmgrd", "--unknown"}, 2},
 		{[]string{"license", "--unknown"}, 2},
+		{[]string{"license", "--summary"}, 2},
+		{[]string{"lmgrd", "--summary=invalid"}, 2},
 		{[]string{"--format", "unknown"}, 2},
 		{[]string{"--format"}, 2},
 		{[]string{"--unknown"}, 2},
@@ -199,6 +201,97 @@ func TestRunFlags(t *testing.T) {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 			}
 		})
+	}
+}
+
+func TestRunLogSummaryCounts(t *testing.T) {
+	input := "2026-10-14T10:00:00Z (v) OUT: f u@h (2 licenses)\n" +
+		"10:00:01 (v) IN: f u@h\n" +
+		"10:00:02 (v) DENIED: f u@h\n" +
+		"10:00:03 (v) QUEUED: f u@h\n" +
+		"10:00:04 (v) DEQUEUED: f u@h\n" +
+		"bad\n10:00:05 (v) OUT: invalid\n" +
+		"10:00:06 (v) OUT: f u@h\n" +
+		"10:00:07 (v) UNSUPPORTED: f u@h (No such feature exists.)\n" +
+		"10:00:08 (v) UNSUPPORTED: other u@h\n" +
+		"10:00:09 (v) message mentioning UNSUPPORTED: f\n" +
+		"10:00:10 (v) UNSUPPORTED_FEATURE: f\n" +
+		"10:00:11 (v) TIMESTAMP\n"
+	path := filepath.Join(t.TempDir(), "debug.log")
+	if err := os.WriteFile(path, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "Time range: 2026-10-14T10:00:00Z -> 2026-10-14T10:00:11Z\n" +
+		"OUT: 2\nIN: 1\nDENIED: 1\nUNSUPPORTED: 2\n"
+	for _, args := range [][]string{
+		{"lmgrd", "--summary"},
+		{"lmgrd", "--summary", "-"},
+		{"lmgrd", "--summary", path},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := run(args, strings.NewReader(input), &out, &errOut)
+			if code != 0 || out.String() != want || errOut.String() != "goflexlm: skipped 2 unparseable lines (invalid_activity: 1, invalid_envelope: 1)\n" {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+		})
+	}
+}
+
+func TestRunLogSummaryTimeRange(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, want string
+	}{
+		{"clock only", " 1:02:03 (v) hello\n02:03:04 (v) bye\n", "01:02:03 (date/offset unknown) -> 02:03:04 (date/offset unknown)"},
+		{"single event", "2026-10-14T01:02:03.123-04:00 (v) hello\n", "2026-10-14T01:02:03.123-04:00 -> 2026-10-14T01:02:03.123-04:00"},
+		{"midnight", "2026-10-14T23:59:59Z (v) hello\n00:00:01 (v) bye\n", "2026-10-14T23:59:59Z -> 2026-10-15T00:00:01Z"},
+		{"native date", "13:46:51 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:51 UTC\n13:46:52 (v) hello\n", "2025-08-29T13:46:51Z -> 2025-08-29T13:46:52Z"},
+		{"partly dated", "01:02:03 (v) hello\n2026-10-14T01:02:04Z (v) bye\n", "2026-10-14T01:02:03Z -> 2026-10-14T01:02:04Z"},
+		{"anchor after midnight", "14:00:57 (v) hello\n2026-06-10T11:35:30Z (v) bye\n", "2026-06-09T14:00:57Z -> 2026-06-10T11:35:30Z"},
+		{"multiple midnights before anchor", "23:59:59 (v) hello\n00:00:01 (v) hello\n23:59:59 (v) hello\n2026-01-01T00:00:01-04:00 (v) bye\n", "2025-12-30T23:59:59-04:00 -> 2026-01-01T00:00:01-04:00"},
+		{"native date backfill", "14:00:57 (v) hello\n00:00:01 (v) hello\n13:46:51 (lmgrd) Server's System Date and Time: Fri Aug 29 2025 13:46:51 UTC\n", "2025-08-28T14:00:57Z -> 2025-08-29T13:46:51Z"},
+		{"later anchor preserves start", "01:02:03 (v) hello\n2026-10-14T01:02:04Z (v) hello\n2026-10-20T01:02:05Z (v) bye\n", "2026-10-14T01:02:03Z -> 2026-10-20T01:02:05Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := run([]string{"lmgrd", "--summary"}, strings.NewReader(tc.input), &out, &errOut)
+			if code != 0 || errOut.Len() != 0 || out.String() != "Time range: "+tc.want+"\nOUT: 0\nIN: 0\nDENIED: 0\nUNSUPPORTED: 0\n" {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+		})
+	}
+}
+
+func TestRunLogSummaryFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input io.Reader
+		want  string
+	}{
+		{"empty", strings.NewReader(""), "no parseable events"},
+		{"invalid", strings.NewReader("bad\n"), "no parseable events"},
+		{"read failure", io.MultiReader(strings.NewReader("01:02:03 (v) hello\n"), errorReader{}), "read input: read failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := run([]string{"lmgrd", "--summary"}, tc.input, &out, &errOut)
+			if code != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), tc.want) {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+		})
+	}
+	var errOut bytes.Buffer
+	code := run([]string{"lmgrd", "--summary"}, strings.NewReader("01:02:03 (v) hello\n"), errorWriter{}, &errOut)
+	if code != 1 || !strings.Contains(errOut.String(), "write output: write failed") {
+		t.Fatalf("code=%d stderr=%q", code, errOut.String())
+	}
+}
+
+func TestRunLogSummaryDisabled(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"lmgrd", "--summary=false"}, strings.NewReader("01:02:03 (v) hello\n"), &out, &errOut)
+	if code != 0 || errOut.Len() != 0 || !json.Valid(out.Bytes()) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 }
 

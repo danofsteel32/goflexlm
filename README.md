@@ -48,6 +48,7 @@ and raw line.
 $ go run ./cmd/goflexlm lmgrd license.log
 {"line":1,"raw":"09:10:11 (vendor) OUT: \"editor\" alex@workstation","time":"09:10:11","daemon":"vendor","kind":"checkout","message":"OUT: \"editor\" alex@workstation","activity":{"feature":"editor","user":"alex","host":"workstation","licenses":1}}
 $ cat license.log | go run ./cmd/goflexlm lmgrd -
+$ go run ./cmd/goflexlm lmgrd --summary license.log
 $ go run ./cmd/goflexlm license server.lic
 ```
 
@@ -60,6 +61,13 @@ lines are skipped, with one summary of their counts by diagnostic code on standa
 error. Exit status is 0 when at least one event was parsed, 1 when no events were
 parsed (including empty input) or an I/O failure occurred, and 2 for invalid
 arguments.
+
+Use `lmgrd --summary` to print the first and last parsed timestamps and counts
+of `OUT`, `IN`, `DENIED`, and `UNSUPPORTED` events
+instead of JSON Lines. A later dated record resolves the starting timestamp,
+accounting for midnight crossings. If no date and offset can be resolved,
+timestamps are marked as unknown. Counts measure events rather than license
+quantities.
 
 License mode writes one JSON document containing servers, vendors, features,
 and the USE_SERVER flag. Malformed or unsupported records reject the whole

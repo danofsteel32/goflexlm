@@ -54,6 +54,40 @@ events were already written.
 
 See [the parser guide](log-parser.md) for the event JSON fields.
 
+## Summarize a debug log
+
+```sh
+go run ./cmd/goflexlm lmgrd --summary debug.log
+go run ./cmd/goflexlm lmgrd --summary - < debug.log
+```
+
+`--summary` replaces JSON Lines output with a text summary on standard output:
+
+```text
+Time range: 2026-10-14T10:00:00Z -> 2026-10-14T11:30:00Z
+OUT: 12
+IN: 10
+DENIED: 2
+UNSUPPORTED: 1
+```
+
+The range uses the first and last successfully parsed events in file order.
+Resolved timestamps include the date and UTC offset, using the decoder's date
+context and midnight rollover rules. When the first event is undated, the summary
+uses the first later resolved timestamp to infer its date and offset, subtracting
+one calendar day for each intervening backward clock change. This assumes
+chronological input and a fixed UTC offset, like the decoder's rollover rule.
+If no resolved timestamp is available, clocks retain `(date/offset unknown)`.
+
+Counts measure parsed events, not license quantities. Only `OUT`, `IN`, `DENIED`,
+and `UNSUPPORTED` are counted, including zeros. `UNSUPPORTED` counts messages
+beginning with `UNSUPPORTED:`. Other parsed messages still contribute to the time
+range. Malformed lines are
+excluded and produce the usual concise diagnostic on standard error. Exit
+statuses match normal log mode. The summary is printed only after input has been
+read successfully and at least one event was parsed. Memory use does not grow
+with the number of events.
+
 ## Convert a license file to JSON
 
 ```sh

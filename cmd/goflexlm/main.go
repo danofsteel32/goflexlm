@@ -29,10 +29,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	command := args[0]
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	var parse func(io.Reader, io.Writer, io.Writer) int
 	switch command {
 	case "lmgrd":
-		parse = runLog
+		summary := flags.Bool("summary", false, "print the time range and event counts instead of JSON Lines")
+		parse = func(input io.Reader, stdout, stderr io.Writer) int {
+			return runLog(input, stdout, stderr, *summary)
+		}
 	case "license":
 		parse = runLicense
 	case "-h", "--help":
@@ -44,7 +48,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
 		fmt.Fprintf(stderr, "usage: goflexlm %s [options] [FILE|-]\n", command)
@@ -94,9 +97,10 @@ func runLicense(input io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runLog(input io.Reader, stdout, stderr io.Writer) int {
+func runLog(input io.Reader, stdout, stderr io.Writer, summaryOnly bool) int {
 	decoder := goflexlm.NewDecoder(input)
 	encoder := json.NewEncoder(stdout)
+	var summary logSummary
 	parsed, skipped := 0, 0
 	diagnosticCounts := make(map[string]int)
 	for decoder.Scan() {
@@ -106,7 +110,9 @@ func runLog(input io.Reader, stdout, stderr io.Writer) int {
 			diagnosticCounts[result.Diagnostic.Code]++
 			continue
 		}
-		if err := encoder.Encode(newJSONEvent(result.Event)); err != nil {
+		if summaryOnly {
+			summary.add(result.Event)
+		} else if err := encoder.Encode(newJSONEvent(result.Event)); err != nil {
 			fmt.Fprintf(stderr, "goflexlm: write output: %v\n", err)
 			return 1
 		}
@@ -138,7 +144,67 @@ func runLog(input io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "goflexlm: no parseable events")
 		return 1
 	}
+	if summaryOnly {
+		if err := summary.write(stdout); err != nil {
+			fmt.Fprintf(stderr, "goflexlm: write output: %v\n", err)
+			return 1
+		}
+	}
 	return 0
+}
+
+type logSummary struct {
+	first, last goflexlm.LogTime
+	counts      map[string]int
+	rollovers   int
+}
+
+func (s *logSummary) add(event *goflexlm.Event) {
+	if s.counts == nil {
+		s.counts = make(map[string]int)
+		s.first = event.LogTime
+	} else if s.first.Time == nil {
+		// Track elapsed calendar days until a dated event anchors the range.
+		if event.LogTime.TimeOfDay.Before(s.last.TimeOfDay) {
+			s.rollovers++
+		}
+		if anchor := event.LogTime.Time; anchor != nil {
+			date := anchor.AddDate(0, 0, -s.rollovers)
+			clock := s.first.TimeOfDay
+			first := time.Date(date.Year(), date.Month(), date.Day(), clock.Hour(), clock.Minute(), clock.Second(), clock.Nanosecond(), date.Location())
+			s.first.Time = &first
+		}
+	}
+	s.last = event.LogTime
+	switch event.Kind {
+	case goflexlm.KindCheckout:
+		s.counts["OUT"]++
+	case goflexlm.KindCheckin:
+		s.counts["IN"]++
+	case goflexlm.KindDenied:
+		s.counts["DENIED"]++
+	default:
+		if strings.HasPrefix(event.Message, "UNSUPPORTED:") {
+			s.counts["UNSUPPORTED"]++
+		}
+	}
+}
+
+func (s *logSummary) write(w io.Writer) error {
+	var out strings.Builder
+	fmt.Fprintf(&out, "Time range: %s -> %s\n", summaryTime(s.first), summaryTime(s.last))
+	for _, label := range []string{"OUT", "IN", "DENIED", "UNSUPPORTED"} {
+		fmt.Fprintf(&out, "%s: %d\n", label, s.counts[label])
+	}
+	_, err := io.WriteString(w, out.String())
+	return err
+}
+
+func summaryTime(t goflexlm.LogTime) string {
+	if t.Time != nil {
+		return t.Time.Format(time.RFC3339Nano)
+	}
+	return t.TimeOfDay.Format("15:04:05") + " (date/offset unknown)"
 }
 
 type jsonEvent struct {
