@@ -39,7 +39,8 @@ func main() {
 Each successful `Scan` produces exactly one `Event` or `Diagnostic` in `Result`.
 Always check `Err` after scanning stops: it reports reader failures only. The
 example handles diagnostics separately; applications choose whether those make
-the overall operation unsuccessful. The supplied CLI returns status 1 for them.
+the overall operation unsuccessful. The supplied CLI summarizes skipped lines
+and succeeds when at least one event was parsed, unless an I/O failure occurred.
 
 The decoder accepts LF, CRLF, and a final line without a newline. Physical line
 numbers include skipped blank lines. `Raw` preserves the source line without its

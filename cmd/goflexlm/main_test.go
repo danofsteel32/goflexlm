@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,8 +29,50 @@ func TestRunFileAndDiagnostics(t *testing.T) {
 	}
 	var out, errOut bytes.Buffer
 	code := run([]string{path}, strings.NewReader("ignored"), &out, &errOut)
-	if code != 1 || !strings.Contains(errOut.String(), "line 1: invalid_envelope") || !strings.Contains(out.String(), `"line":2`) {
+	if code != 0 || errOut.String() != "goflexlm: skipped 1 unparseable line (invalid_envelope: 1)\n" || !strings.Contains(out.String(), `"line":2`) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+}
+
+func TestRunConciseDiagnostics(t *testing.T) {
+	input := strings.Repeat("bad\n", 10000) + "25:02:03 (v) message\n01:02:03 (v) OUT:\n01:02:04 (v) TIMESTAMP\n"
+	var out, errOut bytes.Buffer
+	code := run(nil, strings.NewReader(input), &out, &errOut)
+	want := "goflexlm: skipped 10002 unparseable lines (invalid_activity: 1, invalid_envelope: 10000, invalid_timestamp: 1)\n"
+	if code != 0 || errOut.String() != want || !strings.Contains(out.String(), `"line":10003`) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+}
+
+func TestRunNoParseableEvents(t *testing.T) {
+	for _, input := range []string{"", "\n \t\n", "bad\nalso bad\n"} {
+		t.Run(input, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := run(nil, strings.NewReader(input), &out, &errOut)
+			if code != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), "goflexlm: no parseable events\n") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+		})
+	}
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
+func TestRunInputFailureAfterEvent(t *testing.T) {
+	input := io.MultiReader(strings.NewReader("01:02:03 (v) TIMESTAMP\n"), errorReader{})
+	var out, errOut bytes.Buffer
+	code := run(nil, input, &out, &errOut)
+	if code != 1 || out.Len() == 0 || errOut.String() != "goflexlm: read input: read failed\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+}
+
+func TestRunDiagnosticOutputFailure(t *testing.T) {
+	var out bytes.Buffer
+	if code := run(nil, strings.NewReader("bad\n01:02:03 (v) TIMESTAMP\n"), &out, errorWriter{}); code != 1 {
+		t.Fatalf("code=%d", code)
 	}
 }
 

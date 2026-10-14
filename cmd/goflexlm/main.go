@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/danofsteel32/goflexlm"
@@ -34,19 +36,36 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	decoder := goflexlm.NewDecoder(input)
 	encoder := json.NewEncoder(stdout)
-	hadDiagnostics := false
+	parsed, skipped := 0, 0
+	diagnosticCounts := make(map[string]int)
 	for decoder.Scan() {
 		result := decoder.Result()
 		if result.Diagnostic != nil {
-			hadDiagnostics = true
-			d := result.Diagnostic
-			if _, err := fmt.Fprintf(stderr, "line %d: %s: %s\n", d.Line, d.Code, d.Message); err != nil {
-				return 1
-			}
+			skipped++
+			diagnosticCounts[result.Diagnostic.Code]++
 			continue
 		}
 		if err := encoder.Encode(newJSONEvent(result.Event)); err != nil {
 			fmt.Fprintf(stderr, "goflexlm: write output: %v\n", err)
+			return 1
+		}
+		parsed++
+	}
+	if skipped > 0 {
+		codes := make([]string, 0, len(diagnosticCounts))
+		for code := range diagnosticCounts {
+			codes = append(codes, code)
+		}
+		sort.Strings(codes)
+		counts := make([]string, 0, len(codes))
+		for _, code := range codes {
+			counts = append(counts, fmt.Sprintf("%s: %d", code, diagnosticCounts[code]))
+		}
+		lineWord := "lines"
+		if skipped == 1 {
+			lineWord = "line"
+		}
+		if _, err := fmt.Fprintf(stderr, "goflexlm: skipped %d unparseable %s (%s)\n", skipped, lineWord, strings.Join(counts, ", ")); err != nil {
 			return 1
 		}
 	}
@@ -54,7 +73,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "goflexlm: read input: %v\n", err)
 		return 1
 	}
-	if hadDiagnostics {
+	if parsed == 0 {
+		fmt.Fprintln(stderr, "goflexlm: no parseable events")
 		return 1
 	}
 	return 0

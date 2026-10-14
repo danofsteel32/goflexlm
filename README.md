@@ -51,9 +51,11 @@ $ cat license.log | go run ./cmd/goflexlm -
 ```
 
 The command accepts zero or one argument. No argument and `-` read standard
-input. Valid events are written as JSON Lines to standard output and
-line-numbered diagnostics to standard error. Exit status is 0 for a clean
-parse, 1 for content or I/O failures, and 2 for invalid arguments.
+input. Valid events are written as JSON Lines to standard output. Unparseable
+lines are skipped, with one summary of their counts by diagnostic code on standard
+error. Exit status is 0 when at least one event was parsed, 1 when no events were
+parsed (including empty input) or an I/O failure occurred, and 2 for invalid
+arguments.
 
 ## License files
 
