@@ -317,17 +317,11 @@ func parsePrincipal(body string, verbose bool) (*Activity, error) {
 		}
 		a.Licenses = n
 	}
-	if strings.HasPrefix(principal, "@") {
-		a.Host = strings.TrimPrefix(principal, "@")
-	} else if at := strings.LastIndexByte(principal, '@'); at >= 0 {
-		a.User, a.Host = principal[:at], principal[at+1:]
-	} else if !verbose {
-		a.User = principal
-	} else {
-		return nil, errors.New("verbose activity requires @host")
+	if err := setPrincipal(a, principal); err != nil {
+		return nil, err
 	}
-	if a.Host == "" && strings.Contains(principal, "@") {
-		return nil, errors.New("activity has an empty host")
+	if verbose && !strings.Contains(principal, "@") {
+		return nil, errors.New("verbose activity requires @host")
 	}
 	return a, nil
 }
@@ -338,17 +332,19 @@ func parseDenied(body string) (*Activity, error) {
 		if feature == "" {
 			feature = m[3]
 		}
-		n, _ := strconv.Atoi(m[1])
+		n, err := strconv.Atoi(m[1])
 		a := &Activity{Feature: feature, Licenses: n}
-		setPrincipal(a, m[4])
-		if n < 1 {
+		if err != nil || n < 1 {
 			return nil, errors.New("license count must be a positive integer")
+		}
+		if err := setPrincipal(a, m[4]); err != nil {
+			return nil, err
 		}
 		return a, nil
 	}
 
 	feature, rest, ok := takeFeature(body)
-	if !ok {
+	if !ok || feature == "" {
 		return nil, errors.New("denial has no feature")
 	}
 	principal, detail := rest, ""
@@ -359,7 +355,9 @@ func parseDenied(body string) (*Activity, error) {
 		return nil, errors.New("denial has no user or host")
 	}
 	a := &Activity{Feature: feature, Licenses: 1, DenialReason: detail}
-	setPrincipal(a, principal)
+	if err := setPrincipal(a, principal); err != nil {
+		return nil, err
+	}
 	if m := denialError.FindStringSubmatch(detail); m != nil {
 		a.DenialError = m[1] + "," + m[2]
 		a.DenialReason = strings.TrimSpace(detail[:len(detail)-len(m[0])])
@@ -413,7 +411,7 @@ func takeFeature(s string) (string, string, bool) {
 	return feature, strings.TrimSpace(rest), ok && feature != ""
 }
 
-func setPrincipal(a *Activity, principal string) {
+func setPrincipal(a *Activity, principal string) error {
 	principal = strings.TrimSpace(principal)
 	if strings.HasPrefix(principal, "@") {
 		a.Host = principal[1:]
@@ -422,4 +420,8 @@ func setPrincipal(a *Activity, principal string) {
 	} else {
 		a.User = principal
 	}
+	if a.Host == "" && strings.Contains(principal, "@") {
+		return errors.New("activity has an empty host")
+	}
+	return nil
 }

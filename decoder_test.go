@@ -3,6 +3,7 @@ package goflexlm
 import (
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,27 @@ func TestCompactActivities(t *testing.T) {
 			}
 			if a.Feature != tt.feature || a.User != tt.user || a.Host != tt.host || a.Licenses != tt.licenses || a.CheckoutData != tt.data || a.DenialReason != tt.reason || a.DenialError != tt.denialErr {
 				t.Fatalf("activity = %+v", a)
+			}
+		})
+	}
+}
+
+func TestInvalidDenialsRecover(t *testing.T) {
+	for _, body := range []string{
+		"999999999999999999999999999999 f to user@host",
+		"0 f to user@host", "4 f to user@", "4 f to @",
+		"f user@", "f @", `"" user@host`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			d := NewDecoder(strings.NewReader("01:02:03 (v) DENIED: " + body + "\n01:02:04 (v) OUT: f user@host\n"))
+			if !d.Scan() || d.Result().Diagnostic == nil || d.Result().Diagnostic.Code != DiagnosticInvalidActivity {
+				t.Fatalf("expected invalid activity: %+v", d.Result())
+			}
+			if !d.Scan() || d.Result().Event == nil || d.Result().Event.Line != 2 {
+				t.Fatalf("expected recovery: %+v", d.Result())
+			}
+			if d.Scan() || d.Err() != nil {
+				t.Fatalf("unexpected terminal error: %v", d.Err())
 			}
 		})
 	}
@@ -375,17 +397,50 @@ func TestReaderFailure(t *testing.T) {
 }
 
 func FuzzDecoder(f *testing.F) {
-	f.Add([]byte("01:02:03 (v) OUT: f u@h\n"))
+	for _, seed := range []string{
+		"01:02:03 (v) OUT: f u@h\n",
+		"01:02:03 (v) DENIED: 999999999999999999999999999999 f to u@h\n",
+		"01:02:03 (v) DENIED: f u@\n01:02:04 (v) IN: f u@h\n",
+		"01:02:03 (v) DENIED: \"f\" u@h (No licenses (-4,342))\n",
+		"01:02:03 (v) OUT: f @h ^^^ 1 u 127.0.0.1 2 3 1 4 project name 11 0 2026-10-14 01:02:03 0 ^^^\n",
+		"2026-10-14T23:59:59Z (v) message\n00:00:01 (v) OUT: f u@h\n",
+		"01:02:03 (v) Server's System Date and Time: Fri Aug 29 2025 01:02:03 UTC\n01:02:04 (v) TIMESTAMP 8/30/2025\n",
+	} {
+		f.Add([]byte(seed))
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		d := NewDecoder(strings.NewReader(string(data)))
-		count := 0
-		for d.Scan() {
-			count++
-			if count > len(data)+1 {
-				t.Fatal("decoder failed to consume input")
+		decode := func() []Result {
+			d := NewDecoder(strings.NewReader(string(data)))
+			var results []Result
+			lastLine := 0
+			for d.Scan() {
+				r := d.Result()
+				if (r.Event == nil) == (r.Diagnostic == nil) {
+					t.Fatal("expected exactly one event or diagnostic")
+				}
+				var line int
+				if e := r.Event; e != nil {
+					line = e.Line
+					if a := e.Activity; a != nil && (a.Licenses < 1 || a.Feature == "") {
+						t.Fatalf("invalid activity: %+v", a)
+					}
+				} else {
+					line = r.Diagnostic.Line
+				}
+				if line <= lastLine || line > len(data)+1 {
+					t.Fatalf("invalid line progression: %d -> %d", lastLine, line)
+				}
+				lastLine = line
+				results = append(results, r)
 			}
+			if err := d.Err(); err != nil {
+				t.Fatalf("unexpected string reader error: %v", err)
+			}
+			return results
 		}
-		_ = d.Err()
+		if first, second := decode(), decode(); !reflect.DeepEqual(first, second) {
+			t.Fatal("nondeterministic parse")
+		}
 	})
 }
 
