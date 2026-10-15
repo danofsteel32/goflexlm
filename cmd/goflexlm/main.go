@@ -34,8 +34,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch command {
 	case "lmgrd":
 		summary := flags.Bool("summary", false, "print the time range and event counts instead of JSON Lines")
+		diagnostics := flags.Bool("diagnostics", false, "print details for each skipped line to standard error")
 		parse = func(input io.Reader, stdout, stderr io.Writer) int {
-			return runLog(input, stdout, stderr, *summary)
+			return runLog(input, stdout, stderr, *summary, *diagnostics)
 		}
 	case "license":
 		parse = runLicense
@@ -97,7 +98,7 @@ func runLicense(input io.Reader, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runLog(input io.Reader, stdout, stderr io.Writer, summaryOnly bool) int {
+func runLog(input io.Reader, stdout, stderr io.Writer, summaryOnly, detailedDiagnostics bool) int {
 	decoder := goflexlm.NewDecoder(input)
 	encoder := json.NewEncoder(stdout)
 	var summary logSummary
@@ -106,6 +107,12 @@ func runLog(input io.Reader, stdout, stderr io.Writer, summaryOnly bool) int {
 	for decoder.Scan() {
 		result := decoder.Result()
 		if result.Diagnostic != nil {
+			if detailedDiagnostics {
+				d := result.Diagnostic
+				if _, err := fmt.Fprintf(stderr, "goflexlm: line %d: %s: %s (raw: %q)\n", d.Line, d.Code, d.Message, d.Raw); err != nil {
+					return 1
+				}
+			}
 			skipped++
 			diagnosticCounts[result.Diagnostic.Code]++
 			continue

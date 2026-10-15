@@ -49,6 +49,7 @@ $ go run ./cmd/goflexlm lmgrd license.log
 {"line":1,"raw":"09:10:11 (vendor) OUT: \"editor\" alex@workstation","time":"09:10:11","daemon":"vendor","kind":"checkout","message":"OUT: \"editor\" alex@workstation","activity":{"feature":"editor","user":"alex","host":"workstation","licenses":1}}
 $ cat license.log | go run ./cmd/goflexlm lmgrd -
 $ go run ./cmd/goflexlm lmgrd --summary license.log
+$ go run ./cmd/goflexlm lmgrd --diagnostics license.log
 $ go run ./cmd/goflexlm license server.lic
 ```
 
@@ -58,7 +59,8 @@ accepts zero or one filename; no filename and `-` read standard input. Run
 
 Log mode writes valid events as JSON Lines to standard output. Unparseable
 lines are skipped, with one summary of their counts by diagnostic code on standard
-error. Exit status is 0 when at least one event was parsed, 1 when no events were
+error. Add `--diagnostics` to show each skipped line’s number, code, explanation,
+and quoted source text on standard error. Exit status is 0 when at least one event was parsed, 1 when no events were
 parsed (including empty input) or an I/O failure occurred, and 2 for invalid
 arguments.
 

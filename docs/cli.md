@@ -40,6 +40,23 @@ diagnostic code:
 goflexlm: skipped 6 unparseable lines (invalid_envelope: 6)
 ```
 
+Use `--diagnostics` to print each skipped line's physical line number, diagnostic
+code, explanation, and quoted source text to standard error:
+
+```sh
+go run ./cmd/goflexlm lmgrd --diagnostics debug.log
+go run ./cmd/goflexlm lmgrd --summary --diagnostics debug.log
+```
+
+```text
+goflexlm: line 2: invalid_activity: activity has an empty host (raw: "01:02:03 (v) OUT: f u@")
+```
+
+Source text is quoted with control characters escaped. The final count summary
+is still printed. This option leaves standard output and exit statuses unchanged;
+a failure writing diagnostic details stops processing with status 1. Details are
+written as lines are read, so memory use does not grow with the number of errors.
+
 Content errors allow later lines to be processed. The command succeeds when at
 least one event was parsed. If none were parsed, it reports
 `goflexlm: no parseable events`; this includes empty or blank-only input.

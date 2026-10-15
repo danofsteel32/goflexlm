@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -43,6 +44,51 @@ func TestRunConciseDiagnostics(t *testing.T) {
 	want := "goflexlm: skipped 10002 unparseable lines (invalid_activity: 1, invalid_envelope: 10000, invalid_timestamp: 1)\n"
 	if code != 0 || errOut.String() != want || !strings.Contains(out.String(), `"line":10003`) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+}
+
+func TestRunDetailedDiagnostics(t *testing.T) {
+	for _, summary := range []bool{false, true} {
+		t.Run(fmt.Sprintf("summary=%t", summary), func(t *testing.T) {
+			args := []string{"lmgrd", "--diagnostics"}
+			if summary {
+				args = append(args, "--summary")
+			}
+			var out, errOut bytes.Buffer
+			code := run(args, strings.NewReader("\nbad\t\x1b\n01:02:03 (v) OUT: f u@\n01:02:04 (v) OUT: f u@h\n"), &out, &errOut)
+			want := "goflexlm: line 2: invalid_envelope: expected timestamp, daemon, and message (raw: \"bad\\t\\x1b\")\n" +
+				"goflexlm: line 3: invalid_activity: activity has an empty host (raw: \"01:02:03 (v) OUT: f u@\")\n" +
+				"goflexlm: skipped 2 unparseable lines (invalid_activity: 1, invalid_envelope: 1)\n"
+			if code != 0 || errOut.String() != want {
+				t.Fatalf("code=%d stderr=%q", code, errOut.String())
+			}
+			if summary {
+				if !strings.Contains(out.String(), "OUT: 1\n") {
+					t.Fatalf("stdout=%q", out.String())
+				}
+			} else {
+				var event map[string]any
+				if err := json.Unmarshal(out.Bytes(), &event); err != nil || event["line"] != float64(4) {
+					t.Fatalf("stdout=%q error=%v", out.String(), err)
+				}
+			}
+		})
+	}
+}
+
+func TestRunDetailedDiagnosticsWithoutEvents(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := run([]string{"lmgrd", "--diagnostics"}, strings.NewReader("bad\n"), &out, &errOut)
+	if code != 1 || out.Len() != 0 || !strings.Contains(errOut.String(), "line 1: invalid_envelope:") || !strings.Contains(errOut.String(), "no parseable events") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+}
+
+func TestRunDetailedDiagnosticsOutputFailure(t *testing.T) {
+	var out bytes.Buffer
+	code := run([]string{"lmgrd", "--diagnostics"}, strings.NewReader("bad\n01:02:03 (v) OUT: f u@h\n"), &out, errorWriter{})
+	if code != 1 || out.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q", code, out.String())
 	}
 }
 

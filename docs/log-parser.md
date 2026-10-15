@@ -155,4 +155,6 @@ the Go `Event` struct is not the same output contract.
 Activity always includes `feature` and `licenses`. Empty optional user, host,
 checkout-data, and denial fields are omitted. When present, `verbose` contains
 the text fields declared in [types.go](../types.go). Diagnostics go to standard
-error, never into the JSON Lines event stream. See [CLI usage](cli.md).
+error, never into the JSON Lines event stream. Use `lmgrd --diagnostics` to include
+line numbers, codes, explanations, and quoted source lines alongside the count
+summary. See [CLI usage](cli.md).
